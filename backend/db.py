@@ -1,6 +1,8 @@
 """Database module for FastAPI ArangoDB backend application."""
 
 import os
+import json
+from pathlib import Path
 
 from arango import ArangoClient
 from loguru import logger
@@ -11,88 +13,53 @@ DB_USER = os.environ.get("ARANGO_USER", "root")
 DB_PASS = os.environ.get("ARANGO_PASSWORD", "rootpassword")
 DB_NAME = os.environ.get("ARANGO_DB", "fastapi_arango_db")
 
-# Collection lists - Generic examples
-DOCUMENT_COLLECTIONS = [
-    "users",
-    "products",
-    "categories",
-    "orders",
-    "resources"
-]
+# Load collections from config
+CONFIG_PATH = Path(__file__).parent.parent / "config" / "collections.json"
 
-EDGE_COLLECTIONS = [
-    "user_order",
-    "product_category",
-    "order_product"
-]
+# Default collections in case config file is not found
+DOCUMENT_COLLECTIONS = ["users", "products", "categories", "orders", "resources"]
 
-# Graph definitions
+EDGE_COLLECTIONS = ["user_order", "product_category", "order_product"]
+
 GRAPH_NAME = "example_graph"
 GRAPH_EDGES = [
     {
         "edge_collection": "user_order",
         "from_collections": ["users"],
-        "to_collections": ["orders"]
+        "to_collections": ["orders"],
     },
     {
         "edge_collection": "product_category",
         "from_collections": ["products"],
-        "to_collections": ["categories"]
+        "to_collections": ["categories"],
     },
     {
         "edge_collection": "order_product",
         "from_collections": ["orders"],
-        "to_collections": ["products"]
-    }
-]
-        "to_collections": ["players"],
-    },
-    {
-        "edge_collection": "team_organization",
-        "from_collections": ["teams"],
-        "to_collections": ["organizations"],
-    },
-    {
-        "edge_collection": "team_event",
-        "from_collections": ["teams"],
-        "to_collections": ["events"],
-    },
-    {
-        "edge_collection": "team_match",
-        "from_collections": ["teams"],
-        "to_collections": ["matches"],
-    },
-    {
-        "edge_collection": "video_team",
-        "from_collections": ["videos"],
-        "to_collections": ["teams"],
-    },
-    {
-        "edge_collection": "video_set",
-        "from_collections": ["videos"],
-        "to_collections": ["sets"],
-    },
-    {
-        "edge_collection": "rotation_tracker_set",
-        "from_collections": ["sets_rotation_tracker"],
-        "to_collections": ["sets"],
-    },
-    {
-        "edge_collection": "libero_tracker_set",
-        "from_collections": ["sets_libero_tracker"],
-        "to_collections": ["sets"],
-    },
-    {
-        "edge_collection": "set_log_set",
-        "from_collections": ["sets_logs"],
-        "to_collections": ["sets"],
-    },
-    {
-        "edge_collection": "match_set",
-        "from_collections": ["matches"],
-        "to_collections": ["sets"],
+        "to_collections": ["products"],
     },
 ]
+
+# Try to load from the config file if it exists
+try:
+    if CONFIG_PATH.exists():
+        with open(CONFIG_PATH, "r") as f:
+            collection_config = json.load(f)
+
+        # Override with config values
+        DOCUMENT_COLLECTIONS = collection_config.get(
+            "document_collections", DOCUMENT_COLLECTIONS
+        )
+        EDGE_COLLECTIONS = collection_config.get("edge_collections", EDGE_COLLECTIONS)
+        GRAPH_EDGES = collection_config.get("graph_edges", GRAPH_EDGES)
+        logger.info(f"Loaded collection configuration from {CONFIG_PATH}")
+    else:
+        logger.warning(
+            f"Collection config file not found at {CONFIG_PATH}, using defaults"
+        )
+except Exception as e:
+    logger.error(f"Error loading collection config: {str(e)}")
+    logger.warning("Using default collection configuration")
 
 # Singleton database connection
 _db_connection = None

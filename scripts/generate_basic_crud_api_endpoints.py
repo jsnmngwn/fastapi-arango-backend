@@ -24,6 +24,125 @@ def snake_to_camel(snake_str: str) -> str:
     return components[0] + "".join(x.capitalize() for x in components[1:])
 
 
+def update_collection_config(entity_info: Dict[str, Any]) -> None:
+    """Update the collections.json file with new collection information."""
+    entity_name = entity_info["entity_name"]
+    is_edge = entity_info["is_edge"]
+    connected_entities = entity_info["connected_entities"]
+
+    # Path to collection config
+    config_path = Path(__file__).parent.parent / "config" / "collections.json"
+    config_dir = config_path.parent
+
+    # Ensure config directory exists
+    os.makedirs(config_dir, exist_ok=True)
+
+    # Default configuration
+    default_config = {
+        "document_collections": [
+            "users",
+            "products",
+            "categories",
+            "orders",
+            "resources",
+        ],
+        "edge_collections": ["user_order", "product_category", "order_product"],
+        "graph_edges": [
+            {
+                "edge_collection": "user_order",
+                "from_collections": ["users"],
+                "to_collections": ["orders"],
+            },
+            {
+                "edge_collection": "product_category",
+                "from_collections": ["products"],
+                "to_collections": ["categories"],
+            },
+            {
+                "edge_collection": "order_product",
+                "from_collections": ["orders"],
+                "to_collections": ["products"],
+            },
+        ],
+    }
+
+    # Load existing config if it exists, otherwise use default
+    if config_path.exists():
+        try:
+            with open(config_path, "r") as f:
+                config = json.load(f)
+        except Exception as e:
+            print(f"Error reading collection config: {str(e)}")
+            config = default_config
+    else:
+        config = default_config
+
+    # Update config with new collection
+    updated = False
+
+    if is_edge:
+        # Add to edge collections if not already present
+        if entity_name not in config["edge_collections"]:
+            config["edge_collections"].append(entity_name)
+            updated = True
+            print(f"Added '{entity_name}' to edge collections")
+
+        # Add to graph edges if not already present and we have connected entities
+        if connected_entities and len(connected_entities) == 2:
+            # Check if this edge already exists in graph edges
+            edge_exists = False
+            for edge in config["graph_edges"]:
+                if edge["edge_collection"] == entity_name:
+                    edge_exists = True
+                    break
+
+            if not edge_exists:
+                # Determine proper collection names (handle pluralization correctly)
+                from_entity = connected_entities[0]
+                to_entity = connected_entities[1]
+
+                # Simple pluralization rules
+                def pluralize(word):
+                    if word.endswith("y"):
+                        return word[:-1] + "ies"
+                    elif word.endswith("s"):
+                        return word
+                    else:
+                        return word + "s"
+
+                from_collection_plural = pluralize(from_entity)
+                to_collection_plural = pluralize(to_entity)
+
+                # Create new edge definition
+                new_edge = {
+                    "edge_collection": entity_name,
+                    "from_collections": [from_collection_plural],
+                    "to_collections": [to_collection_plural],
+                }
+                config["graph_edges"].append(new_edge)
+                updated = True
+                print(
+                    f"Added '{entity_name}' to graph edges with connections: {from_collection_plural} → {to_collection_plural}"
+                )
+    else:
+        # Add to document collections if not already present
+        if entity_name not in config["document_collections"]:
+            config["document_collections"].append(entity_name)
+            updated = True
+            print(f"Added '{entity_name}' to document collections")
+
+    # Save updated config if changes were made
+    if updated:
+        try:
+            with open(config_path, "w") as f:
+                json.dump(config, f, indent=2)
+            print(f"Updated collection configuration at {config_path}")
+        except Exception as e:
+            print(f"Error writing collection config: {str(e)}")
+    else:
+        print(f"No changes needed for collection configuration")
+
+
 def parse_schema(schema_path: str) -> Dict[str, Any]:
     """Parse JSON schema file and extract relevant information"""
     with open(schema_path, "r") as f:
@@ -68,7 +187,7 @@ def parse_schema(schema_path: str) -> Dict[str, Any]:
         "description": schema.get("description", ""),
         "unique_combinations": unique_combinations,
         "search_fields": search_fields,
-        "search_field_types": search_field_types,  # Add this line
+        "search_field_types": search_field_types,
     }
 
 
@@ -490,7 +609,9 @@ def generate_service_file(entity_info: Dict[str, Any], output_dir: str) -> None:
             elif prop["default"] is False:
                 default_value = "False"
             else:
-                default_value = json.dumps(prop["default"])  # Properly format other values
+                default_value = json.dumps(
+                    prop["default"]
+                )  # Properly format other values
             validation_code += f'            "{field}": {default_value},\n'
 
     # Add defaults from custom extension if it exists
@@ -692,40 +813,40 @@ def generate_routes_file(entity_info: Dict[str, Any], output_dir: str) -> None:
     pascal_name = entity_info["pascal_name"]
     camel_name = entity_info["camel_name"]
     is_edge = entity_info["is_edge"]
-    
+
     # Get search fields with types
     search_fields = entity_info.get("search_fields", [])
     search_field_types = entity_info.get("search_field_types", {})
     properties = entity_info.get("properties", {})
-    
+
     # Build query parameters for search fields
     query_params = ""
     filter_params_dict = ""
-    
+
     if search_fields:
         # Create query parameters for each search field
         for field in search_fields:
             if field in properties:
                 prop_info = properties[field]
                 field_type = prop_info.get("type", "string")
-                
+
                 # Map JSON types to Python types
                 type_map = {
-                    "string": "str", 
-                    "integer": "int", 
+                    "string": "str",
+                    "integer": "int",
                     "number": "float",
-                    "boolean": "bool"
+                    "boolean": "bool",
                 }
                 py_type = type_map.get(field_type, "str")
-                
+
                 # Get description if available
                 desc = prop_info.get("description", f"Filter by {field}")
                 if field_type == "string" and not field.endswith("_id"):
                     desc += " (supports partial matching)"
-                
+
                 # Add the query parameter
                 query_params += f"""    {field}: Optional[{py_type}] = Query(None, description="{desc}"),\n"""
-                
+
                 # Add to filter params dictionary
                 filter_params_dict += f'        "{field}": {field},\n'
 
@@ -771,9 +892,10 @@ async def get_{entity_name}_by_to(
 
     # Build the complete template by parts to avoid syntax errors
     template_parts = []
-    
+
     # Header section
-    template_parts.append(f"""\"\"\"
+    template_parts.append(
+        f"""\"\"\"
 API routes for {camel_name} management.
 \"\"\"
 from typing import List, Optional
@@ -795,11 +917,13 @@ async def create_{entity_name}(
     service = {pascal_name}Service(db)
     result = await service.create(data.model_dump(exclude_unset=True))
     return result
-""")
-    
+"""
+    )
+
     # Get all endpoint with or without search
     if search_fields:
-        template_parts.append(f"""
+        template_parts.append(
+            f"""
 @router.get("/", response_model=List[{pascal_name}Response])
 async def get_all_{entity_name}s(
 {query_params}    skip: int = Query(0, ge=0),
@@ -822,9 +946,11 @@ async def get_all_{entity_name}s(
         result = await service.get_all(skip, limit)
         
     return result
-""")
+"""
+        )
     else:
-        template_parts.append(f"""
+        template_parts.append(
+            f"""
 @router.get("/", response_model=List[{pascal_name}Response])
 async def get_all_{entity_name}s(
     skip: int = Query(0, ge=0),
@@ -835,10 +961,12 @@ async def get_all_{entity_name}s(
     service = {pascal_name}Service(db)
     result = await service.get_all(skip, limit)
     return result
-""")
-    
+"""
+        )
+
     # CRUD endpoints
-    template_parts.append(f"""
+    template_parts.append(
+        f"""
 @router.get("/{{key}}", response_model={pascal_name}Response)
 async def get_{entity_name}_by_key(
     key: str = Path(..., title="{pascal_name} key"),
@@ -869,12 +997,13 @@ async def delete_{entity_name}(
     service = {pascal_name}Service(db)
     result = await service.delete(key)
     return {{"success": result}}
-""")
-    
+"""
+    )
+
     # Edge-specific routes
     if edge_routes:
         template_parts.append(edge_routes)
-    
+
     # Combine all parts into final template
     template = "".join(template_parts)
 
@@ -885,6 +1014,7 @@ async def delete_{entity_name}(
         f.write(template)
 
     print(f"Generated routes file: {output_path}")
+
 
 def update_entity_registry(entity_name: str) -> None:
     """Update the entity registry file and schema imports with the new entity"""
@@ -1063,6 +1193,9 @@ def main():
                 # Parse the schema
                 entity_info = parse_schema(schema_path)
 
+                # Update collection configuration
+                update_collection_config(entity_info)
+
                 # Generate files
                 generate_schema_file(entity_info, str(schemas_dir))
                 generate_service_file(entity_info, str(services_dir))
@@ -1090,6 +1223,9 @@ def main():
 
         # Parse the schema
         entity_info = parse_schema(schema_path)
+
+        # Update collection configuration
+        update_collection_config(entity_info)
 
         # Generate files
         generate_schema_file(entity_info, str(schemas_dir))

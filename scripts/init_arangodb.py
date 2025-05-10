@@ -4,13 +4,20 @@ Usage:
     poetry run python scripts/init_arangodb.py
 """
 
+import json
+import os
+from pathlib import Path
 from arango import ArangoClient
 
 ARANGO_HOST = "http://localhost:8529"
 ARANGO_USER = "root"
 ARANGO_PASS = "rootpassword"
 DB_NAME = "fastapi_arango_db"
-# Document collections
+
+# Path to config file
+CONFIG_PATH = Path(__file__).parent.parent / "config" / "collections.json"
+
+# Default collections in case config file is not found
 DOCUMENT_COLLECTIONS = [
     "users",
     "products",
@@ -18,12 +25,50 @@ DOCUMENT_COLLECTIONS = [
     "orders",
     "resources",
 ]
-# Edge collections
+
 EDGE_COLLECTIONS = [
     "user_order",
     "product_category",
     "order_product",
 ]
+
+GRAPH_NAME = "example_graph"
+GRAPH_EDGES = [
+    {
+        "edge_collection": "user_order",
+        "from_collections": ["users"],
+        "to_collections": ["orders"],
+    },
+    {
+        "edge_collection": "product_category",
+        "from_collections": ["products"],
+        "to_collections": ["categories"],
+    },
+    {
+        "edge_collection": "order_product",
+        "from_collections": ["orders"],
+        "to_collections": ["products"],
+    },
+]
+
+# Try to load from config file if it exists
+try:
+    if CONFIG_PATH.exists():
+        with open(CONFIG_PATH, "r") as f:
+            collection_config = json.load(f)
+
+        # Override with config values
+        DOCUMENT_COLLECTIONS = collection_config.get(
+            "document_collections", DOCUMENT_COLLECTIONS
+        )
+        EDGE_COLLECTIONS = collection_config.get("edge_collections", EDGE_COLLECTIONS)
+        GRAPH_EDGES = collection_config.get("graph_edges", GRAPH_EDGES)
+        print(f"Loaded collection configuration from {CONFIG_PATH}")
+    else:
+        print(f"Collection config file not found at {CONFIG_PATH}, using defaults")
+except Exception as e:
+    print(f"Error loading collection config: {str(e)}")
+    print("Using default collection configuration")
 
 
 def main():
@@ -38,6 +83,7 @@ def main():
         print(f"Database '{DB_NAME}' already exists.")
 
     db = client.db(DB_NAME, username=ARANGO_USER, password=ARANGO_PASS)
+
     # Create document collections
     for col in DOCUMENT_COLLECTIONS:
         if not db.has_collection(col):
@@ -53,6 +99,53 @@ def main():
             print(f"Edge collection '{col}' created.")
         else:
             print(f"Edge collection '{col}' already exists.")
+
+    # Create graph
+    if not db.has_graph(GRAPH_NAME):
+        print(f"Creating graph: {GRAPH_NAME}")
+        graph = db.create_graph(GRAPH_NAME)
+
+        # Add edge definitions to graph
+        for edge_def in GRAPH_EDGES:
+            graph.create_edge_definition(
+                edge_collection=edge_def["edge_collection"],
+                from_vertex_collections=edge_def["from_collections"],
+                to_vertex_collections=edge_def["to_collections"],
+            )
+    else:
+        # Get existing graph
+        graph = db.graph(GRAPH_NAME)
+
+        # Get existing edge definitions
+        existing_edge_definitions = []
+        try:
+            for edge_def in graph.edge_definitions():
+                if hasattr(edge_def, "name"):
+                    existing_edge_definitions.append(edge_def.name)
+                elif isinstance(edge_def, dict):
+                    if "edge_collection" in edge_def:
+                        existing_edge_definitions.append(edge_def["edge_collection"])
+                    elif "name" in edge_def:
+                        existing_edge_definitions.append(edge_def["name"])
+                elif isinstance(edge_def, str):
+                    existing_edge_definitions.append(edge_def)
+        except Exception as e:
+            print(f"Error getting edge definitions: {str(e)}")
+            # If we can't get edge definitions, we'll try to recreate them
+            existing_edge_definitions = []
+
+        # Add missing edge definitions
+        for edge_def in GRAPH_EDGES:
+            edge_name = edge_def["edge_collection"]
+
+            if edge_name not in existing_edge_definitions:
+                print(f"Adding edge definition to graph: {edge_name}")
+                graph.create_edge_definition(
+                    edge_collection=edge_name,
+                    from_vertex_collections=edge_def["from_collections"],
+                    to_vertex_collections=edge_def["to_collections"],
+                )
+
     print("ArangoDB initialized with database and collections.")
 
 
