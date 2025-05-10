@@ -11,6 +11,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
+from loguru import logger
 
 
 def snake_to_pascal(snake_str: str) -> str:
@@ -1148,8 +1149,22 @@ def main():
                 # Parse the schema
                 entity_info = parse_schema(schema_path)
 
-                # Update collection configuration
-                update_collection_config(entity_info)
+                # Update collection configuration - FIX HERE
+                update_collection_config(
+                    entity_info["entity_name"],
+                    is_edge=entity_info["is_edge"],
+                    from_collection=(
+                        entity_info["connected_entities"][0]
+                        if entity_info["is_edge"] and entity_info["connected_entities"]
+                        else None
+                    ),
+                    to_collection=(
+                        entity_info["connected_entities"][1]
+                        if entity_info["is_edge"]
+                        and len(entity_info["connected_entities"]) > 1
+                        else None
+                    ),
+                )
 
                 # Generate files
                 generate_schema_file(entity_info, str(schemas_dir))
