@@ -14,7 +14,7 @@ DB_PASS = os.environ.get("ARANGO_PASSWORD", "rootpassword")
 DB_NAME = os.environ.get("ARANGO_DB", "fastapi_arango_db")
 
 # Load collections from config
-CONFIG_PATH = Path(__file__).parent.parent / "config" / "collections.json"
+CONFIG_PATH = Path(__file__).parent / "config" / "collections.json"
 
 # Default collections in case config file is not found
 DOCUMENT_COLLECTIONS = ["users", "products", "categories", "orders", "resources"]
@@ -44,22 +44,18 @@ GRAPH_EDGES = [
 try:
     if CONFIG_PATH.exists():
         with open(CONFIG_PATH, "r") as f:
-            collection_config = json.load(f)
-
-        # Override with config values
-        DOCUMENT_COLLECTIONS = collection_config.get(
-            "document_collections", DOCUMENT_COLLECTIONS
-        )
-        EDGE_COLLECTIONS = collection_config.get("edge_collections", EDGE_COLLECTIONS)
-        GRAPH_EDGES = collection_config.get("graph_edges", GRAPH_EDGES)
-        logger.info(f"Loaded collection configuration from {CONFIG_PATH}")
+            config = json.load(f)
+            DOCUMENT_COLLECTIONS = config.get(
+                "document_collections", DOCUMENT_COLLECTIONS
+            )
+            EDGE_COLLECTIONS = config.get("edge_collections", EDGE_COLLECTIONS)
+            GRAPH_EDGES = config.get("graph_edges", GRAPH_EDGES)
+            logger.info(f"Loaded collections from {CONFIG_PATH}")
     else:
-        logger.warning(
-            f"Collection config file not found at {CONFIG_PATH}, using defaults"
-        )
+        logger.warning(f"Configuration file {CONFIG_PATH} not found, using defaults")
 except Exception as e:
-    logger.error(f"Error loading collection config: {str(e)}")
-    logger.warning("Using default collection configuration")
+    logger.error(f"Error loading configuration from {CONFIG_PATH}: {e}")
+    logger.warning("Using default collections")
 
 # Singleton database connection
 _db_connection = None

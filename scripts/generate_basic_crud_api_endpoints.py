@@ -24,123 +24,78 @@ def snake_to_camel(snake_str: str) -> str:
     return components[0] + "".join(x.capitalize() for x in components[1:])
 
 
-def update_collection_config(entity_info: Dict[str, Any]) -> None:
-    """Update the collections.json file with new collection information."""
-    entity_name = entity_info["entity_name"]
-    is_edge = entity_info["is_edge"]
-    connected_entities = entity_info["connected_entities"]
-
-    # Path to collection config
-    config_path = Path(__file__).parent.parent / "config" / "collections.json"
+def update_collection_config(
+    collection_name, is_edge=False, from_collection=None, to_collection=None
+):
+    """Update the collections.json configuration file with the new collection."""
+    config_path = (
+        Path(__file__).parent.parent / "backend" / "config" / "collections.json"
+    )
     config_dir = config_path.parent
 
-    # Ensure config directory exists
-    os.makedirs(config_dir, exist_ok=True)
+    # Create config directory if it doesn't exist
+    config_dir.mkdir(exist_ok=True)
 
-    # Default configuration
-    default_config = {
-        "document_collections": [
-            "users",
-            "products",
-            "categories",
-            "orders",
-            "resources",
-        ],
-        "edge_collections": ["user_order", "product_category", "order_product"],
-        "graph_edges": [
-            {
-                "edge_collection": "user_order",
-                "from_collections": ["users"],
-                "to_collections": ["orders"],
-            },
-            {
-                "edge_collection": "product_category",
-                "from_collections": ["products"],
-                "to_collections": ["categories"],
-            },
-            {
-                "edge_collection": "order_product",
-                "from_collections": ["orders"],
-                "to_collections": ["products"],
-            },
-        ],
-    }
+    # Initialize default config
+    config = {"document_collections": [], "edge_collections": [], "graph_edges": []}
 
-    # Load existing config if it exists, otherwise use default
+    # Load existing config if it exists
     if config_path.exists():
         try:
             with open(config_path, "r") as f:
                 config = json.load(f)
-        except Exception as e:
-            print(f"Error reading collection config: {str(e)}")
-            config = default_config
-    else:
-        config = default_config
+        except json.JSONDecodeError:
+            logger.warning(f"Error parsing {config_path}, using defaults")
 
-    # Update config with new collection
-    updated = False
-
+    # Update config with the new collection
     if is_edge:
-        # Add to edge collections if not already present
-        if entity_name not in config["edge_collections"]:
-            config["edge_collections"].append(entity_name)
-            updated = True
-            print(f"Added '{entity_name}' to edge collections")
+        if collection_name not in config["edge_collections"]:
+            config["edge_collections"].append(collection_name)
 
-        # Add to graph edges if not already present and we have connected entities
-        if connected_entities and len(connected_entities) == 2:
-            # Check if this edge already exists in graph edges
+        # Handle graph edge definition
+        if from_collection and to_collection:
+            # Handle pluralization for collections ending in 'y'
+            from_coll = (
+                from_collection[:-1] + "ies"
+                if from_collection.endswith("y")
+                else from_collection + "s"
+            )
+            to_coll = (
+                to_collection[:-1] + "ies"
+                if to_collection.endswith("y")
+                else to_collection + "s"
+            )
+
+            # Check if this edge definition already exists
             edge_exists = False
             for edge in config["graph_edges"]:
-                if edge["edge_collection"] == entity_name:
+                if edge["edge_collection"] == collection_name:
                     edge_exists = True
                     break
 
             if not edge_exists:
-                # Determine proper collection names (handle pluralization correctly)
-                from_entity = connected_entities[0]
-                to_entity = connected_entities[1]
-
-                # Simple pluralization rules
-                def pluralize(word):
-                    if word.endswith("y"):
-                        return word[:-1] + "ies"
-                    elif word.endswith("s"):
-                        return word
-                    else:
-                        return word + "s"
-
-                from_collection_plural = pluralize(from_entity)
-                to_collection_plural = pluralize(to_entity)
-
-                # Create new edge definition
-                new_edge = {
-                    "edge_collection": entity_name,
-                    "from_collections": [from_collection_plural],
-                    "to_collections": [to_collection_plural],
-                }
-                config["graph_edges"].append(new_edge)
-                updated = True
-                print(
-                    f"Added '{entity_name}' to graph edges with connections: {from_collection_plural} → {to_collection_plural}"
+                config["graph_edges"].append(
+                    {
+                        "edge_collection": collection_name,
+                        "from_collections": [from_coll],
+                        "to_collections": [to_coll],
+                    }
                 )
     else:
-        # Add to document collections if not already present
-        if entity_name not in config["document_collections"]:
-            config["document_collections"].append(entity_name)
-            updated = True
-            print(f"Added '{entity_name}' to document collections")
+        # Handle pluralization for collections ending in 'y'
+        coll_plural = (
+            collection_name[:-1] + "ies"
+            if collection_name.endswith("y")
+            else collection_name + "s"
+        )
+        if coll_plural not in config["document_collections"]:
+            config["document_collections"].append(coll_plural)
 
-    # Save updated config if changes were made
-    if updated:
-        try:
-            with open(config_path, "w") as f:
-                json.dump(config, f, indent=2)
-            print(f"Updated collection configuration at {config_path}")
-        except Exception as e:
-            print(f"Error writing collection config: {str(e)}")
-    else:
-        print(f"No changes needed for collection configuration")
+    # Write the updated config back to the file
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2)
+
+    logger.info(f"Updated collection configuration in {config_path}")
 
 
 def parse_schema(schema_path: str) -> Dict[str, Any]:
