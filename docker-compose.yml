@@ -3,7 +3,7 @@ services:
     image: arangodb:latest
     container_name: arangodb
     environment:
-      - ARANGO_ROOT_PASSWORD=rootpassword
+      - ARANGO_PASSWORD=${ARANGO_PASSWORD}
     ports:
       - "8529:8529"
     volumes:
@@ -16,14 +16,16 @@ services:
       dockerfile: Dockerfile
     container_name: fastapi-arango-backend
     environment:
-      - ARANGO_HOST=http://arangodb:8529
-      - ARANGO_USER=root
-      - ARANGO_PASSWORD=rootpassword
-      - ARANGO_DB=fastapi_arango_db
+      - ARANGO_HOST=${ARANGO_HOST}
+      - ARANGO_USER=${ARANGO_USER}
+      - ARANGO_PASSWORD=${ARANGO_PASSWORD}
+      - ARANGO_DB=${ARANGO_DB}
+      - API_PORT=${API_PORT}
+      - LOG_LEVEL=${LOG_LEVEL}
     volumes:
       - .:/app
     ports:
-      - "8000:8000"
+      - "${API_PORT}:${API_PORT}"
     depends_on:
       - arangodb
     command: ./wait-for-arangodb.sh http://arangodb:8529 poetry run python -m backend.main

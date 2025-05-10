@@ -26,9 +26,24 @@ def snake_to_camel(snake_str: str) -> str:
 
 
 def update_collection_config(
-    collection_name, is_edge=False, from_collection=None, to_collection=None
+    entity_info, is_edge=None, from_collection=None, to_collection=None
 ):
     """Update the collections.json configuration file with the new collection."""
+    # Extract values from entity_info if a dict is provided
+    if isinstance(entity_info, dict):
+        collection_name = entity_info.get("entity_name", "")
+        is_edge = entity_info.get("is_edge", False) if is_edge is None else is_edge
+
+        # For edge collections, get connected entities
+        if is_edge and not from_collection and not to_collection:
+            connected_entities = entity_info.get("connected_entities", [])
+            if len(connected_entities) == 2:
+                from_collection, to_collection = connected_entities
+    else:
+        # If entity_info is just the collection name as a string
+        collection_name = entity_info
+        is_edge = is_edge if is_edge is not None else False
+
     config_path = (
         Path(__file__).parent.parent / "backend" / "config" / "collections.json"
     )
@@ -231,9 +246,9 @@ class {pascal_name}Create(BaseModel):
     to_id: str = Field(..., alias="_to", description="{to_desc}")
 """
 
-    # Add required fields for creation
-    for prop_name in required:
-        # Skip _id, _key and already handled edge fields
+    # Add all fields to the creation model (both required and optional)
+    for prop_name, prop_info in properties.items():
+        # Skip internal fields for creation except for edge fields
         if prop_name.startswith("_") and prop_name not in ["_from", "_to"]:
             continue
 
@@ -241,19 +256,31 @@ class {pascal_name}Create(BaseModel):
         if is_edge and prop_name in ["_from", "_to"]:
             continue
 
-        prop_info = properties.get(prop_name, {})
         prop_type = type_mapping.get(prop_info.get("type", "string"), "Any")
 
         # Handle formats like date-time
         if "format" in prop_info:
             prop_type = format_mapping.get(prop_info["format"], prop_type)
 
+        # Required fields need special handling
+        is_required = prop_name in required
+
         # Add field description if available
         desc = prop_info.get("description", "")
-        if desc:
-            template += f'    {prop_name}: {prop_type} = Field(description="{desc}")\n'
+
+        if is_required:
+            if desc:
+                template += (
+                    f'    {prop_name}: {prop_type} = Field(description="{desc}")\n'
+                )
+            else:
+                template += f"    {prop_name}: {prop_type}\n"
         else:
-            template += f"    {prop_name}: {prop_type}\n"
+            # Optional fields should have default=None
+            if desc:
+                template += f'    {prop_name}: Optional[{prop_type}] = Field(default=None, description="{desc}")\n'
+            else:
+                template += f"    {prop_name}: Optional[{prop_type}] = None\n"
 
     # Add model_config for aliases
     if is_edge:
@@ -649,7 +676,7 @@ def generate_service_file(entity_info: Dict[str, Any], output_dir: str) -> None:
     template = f"""\"\"\"
 Service for {pascal_name} operations.
 \"\"\"
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from typing import Dict, List, Optional, Any, Union
 from arango.database import Database
 from fastapi import HTTPException
@@ -673,7 +700,9 @@ class {pascal_name}Service:
         # Add timestamps
         data["created_at"] = datetime.utcnow().isoformat()
         data["updated_at"] = data["created_at"]
-        
+        for field, value in list(data.items()):
+            if isinstance(value, date):
+                data[field] = value.isoformat()
         try:
             result = self.db.collection(self.collection_name).insert(data, return_new=True)
             return result["new"]
@@ -718,6 +747,11 @@ class {pascal_name}Service:
             
             # Add updated timestamp
             updated_doc["updated_at"] = datetime.now(timezone.utc).isoformat()
+            
+            # Convert date objects to ISO format strings
+            for field, value in list(updated_doc.items()):
+                if isinstance(value, date):
+                    updated_doc[field] = value.isoformat()
             
             # Remove any fields that shouldn't be modified
             for field in ["_id", "_rev"]:
