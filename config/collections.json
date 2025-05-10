@@ -1,0 +1,54 @@
+{
+  "document_collections": [
+    "users",
+    "products",
+    "categories",
+    "orders",
+    "resources",
+    "books"
+  ],
+  "edge_collections": [
+    "user_order",
+    "product_category",
+    "order_product",
+    "book_category"
+  ],
+  "graph_edges": [
+    {
+      "edge_collection": "user_order",
+      "from_collections": [
+        "users"
+      ],
+      "to_collections": [
+        "orders"
+      ]
+    },
+    {
+      "edge_collection": "product_category",
+      "from_collections": [
+        "products"
+      ],
+      "to_collections": [
+        "categories"
+      ]
+    },
+    {
+      "edge_collection": "order_product",
+      "from_collections": [
+        "orders"
+      ],
+      "to_collections": [
+        "products"
+      ]
+    },
+    {
+      "edge_collection": "book_category",
+      "from_collections": [
+        "books"
+      ],
+      "to_collections": [
+        "categories"
+      ]
+    }
+  ]
+}
