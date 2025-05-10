@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "_id": { "type": "string", "description": "ArangoDB document ID (_id)" },
+    "_key": { "type": "string", "description": "ArangoDB document key (_key)" },
+    "_from": { "type": "string", "description": "User document handle" },
+    "_to": { "type": "string", "description": "Order document handle" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "is_primary": { "type": "boolean", "default": true, "description": "Whether this is the primary user for the order" }
+  },
+  "required": ["_from", "_to"],
+  "x-search-fields": [
+    "is_primary"
+  ]
+}

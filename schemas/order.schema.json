@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "_id": { "type": "string", "description": "ArangoDB document ID (_id)" },
+    "_key": { "type": "string", "description": "ArangoDB document key (_key)" },
+    "order_date": { "type": "string", "format": "date-time", "description": "When the order was placed" },
+    "status": { 
+      "type": "string", 
+      "description": "Order status",
+      "enum": ["pending", "processing", "shipped", "delivered", "cancelled"]
+    },
+    "total_amount": { "type": "number", "description": "Total order amount" },
+    "shipping_address": { "type": "string", "description": "Shipping address" },
+    "payment_method": { "type": "string", "description": "Payment method used" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["order_date", "status"],
+  "x-search-fields": [
+    "order_date",
+    "status",
+    "total_amount",
+    "payment_method"
+  ]
+}

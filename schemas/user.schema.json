@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "_id": { "type": "string", "description": "ArangoDB document ID (_id)" },
+    "_key": { "type": "string", "description": "ArangoDB document key (_key)" },
+    "username": { "type": "string", "description": "Username for the account" },
+    "email": { "type": "string", "format": "email", "description": "Email address" },
+    "first_name": { "type": "string", "description": "User's first name" },
+    "last_name": { "type": "string", "description": "User's last name" },
+    "created_at": { "type": "string", "format": "date-time", "description": "Account creation timestamp" },
+    "updated_at": { "type": "string", "format": "date-time", "description": "Last update timestamp" },
+    "active": { "type": "boolean", "default": true, "description": "Whether the user account is active" }
+  },
+  "required": ["username", "email"],
+  "x-unique-combinations": [
+    ["username"],
+    ["email"]
+  ],
+  "x-search-fields": [
+    "username",
+    "email",
+    "first_name",
+    "last_name",
+    "active"
+  ]
+}

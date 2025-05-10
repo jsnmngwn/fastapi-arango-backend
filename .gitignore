@@ -1,0 +1,92 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Poetry
+# Uncomment the next line if you want to ignore the lock file
+# poetry.lock
+
+# Installer logs
+debug.log
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# VS Code
+.vscode/
+
+# Mac
+.DS_Store
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+logs/
+
+# dotenv
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Virtual environments
+.venv
+venv/
+ENV/
+
+# Docker
+.docker/
+
+# ArangoDB data
+arango_data/
+
+# Ignore static build artifacts
+/static/
+
+# Ignore docs build artifacts
+/docs/_build/
+
+# Ignore system files
+*.swp
+*.swo

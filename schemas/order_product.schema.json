@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "title": "Order Product",
+  "description": "Edge collection connecting orders to products",
+  "properties": {
+    "_from": {
+      "type": "string",
+      "description": "Order ID (orders/123)"
+    },
+    "_to": {
+      "type": "string",
+      "description": "Product ID (products/456)"
+    },
+    "_id": {
+      "type": "string",
+      "description": "Edge ID"
+    },
+    "_key": {
+      "type": "string",
+      "description": "Edge key"
+    },
+    "quantity": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Quantity of products ordered"
+    },
+    "unit_price": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Price per unit when ordered (may differ from current product price)"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Creation timestamp"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last update timestamp"
+    }
+  },
+  "required": ["_from", "_to", "quantity", "unit_price"],
+  "additionalProperties": false,
+  "x-collection-type": "edge",
+  "x-from-collection": "orders",
+  "x-to-collection": "products",
+  "x-search-fields": ["quantity", "unit_price"],
+  "x-generate-endpoints": true
+}

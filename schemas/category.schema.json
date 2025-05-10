@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "_id": { "type": "string", "description": "ArangoDB document ID (_id)" },
+    "_key": { "type": "string", "description": "ArangoDB document key (_key)" },
+    "name": { "type": "string", "description": "Category name" },
+    "description": { "type": "string", "description": "Category description" },
+    "parent_id": { "type": "string", "description": "Parent category ID (for hierarchical categories)" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "active": { "type": "boolean", "default": true, "description": "Whether the category is active" }
+  },
+  "required": ["name"],
+  "x-unique-combinations": [
+    ["name"]
+  ],
+  "x-search-fields": [
+    "name",
+    "description",
+    "active"
+  ]
+}
