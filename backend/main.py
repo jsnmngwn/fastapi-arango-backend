@@ -13,6 +13,10 @@ from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
+from dotenv import load_dotenv  # Add this import
+
+# Load environment variables from .env file
+load_dotenv()  # Add this line
 
 # Configure logger to show debug logs
 logger.remove()
@@ -76,8 +80,9 @@ app.include_router(create_api_router())
 
 def start():
     """Start the FastAPI application with Uvicorn server."""
-    logger.info("Starting FastAPI ArangoDB backend service")
-    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
+    port = int(os.environ.get("API_PORT", 8000))
+    logger.info(f"Starting FastAPI ArangoDB backend service on port {port}")
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=port, reload=True)
 
 
 if __name__ == "__main__":

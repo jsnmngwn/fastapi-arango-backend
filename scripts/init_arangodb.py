@@ -15,7 +15,7 @@ ARANGO_PASS = "rootpassword"
 DB_NAME = "fastapi_arango_db"
 
 # Path to config file
-CONFIG_PATH = Path(__file__).parent.parent / "config" / "collections.json"
+CONFIG_PATH = Path(__file__).parent.parent / "backend" / "config" / "collections.json"
 
 # Default collections in case config file is not found
 DOCUMENT_COLLECTIONS = [
