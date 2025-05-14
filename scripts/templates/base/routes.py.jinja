@@ -1,0 +1,179 @@
+"""
+API routes for {{ entity.camel_name }} management.
+"""
+from typing import List, Optional, Dict, Any
+from fastapi import APIRouter, Depends, HTTPException, Query, Path
+from arango.database import Database
+
+from ..schemas.{{ entity.entity_name }} import (
+    {{ entity.pascal_name }}Base,
+    {{ entity.pascal_name }}Create,
+    {{ entity.pascal_name }}Update,
+    {{ entity.pascal_name }}InDB,
+    {{ entity.pascal_name }}Response,
+    {{ entity.pascal_name }}DeleteResponse,
+)
+from ..services.{{ entity.entity_name }}_service import {{ entity.pascal_name }}Service
+from ..db import get_db
+
+router = APIRouter(prefix="/{{ entity.entity_name }}", tags=["{{ entity.pascal_name }}"])
+
+@router.post("/", response_model={{ entity.pascal_name }}Response, status_code=201)
+async def create_{{ entity.entity_name }}(
+    data: {{ entity.pascal_name }}Create,
+    db: Database = Depends(get_db)
+):
+    """Create a new {{ entity.camel_name }}"""
+    service = {{ entity.pascal_name }}Service(db)
+    result = await service.create(data.model_dump(exclude_unset=True))
+    return result
+
+{% if entity.search_fields %}
+@router.get("/", response_model=List[{{ entity.pascal_name }}Response])
+async def get_all_{{ entity.entity_name }}s(
+    {% for field in entity.search_fields %}
+    {% set field_parts = field.split('.') %}
+    {% if field_parts|length > 1 %}
+    {% set field_param = field_parts|join('_') %}
+    {% set desc = "Filter by " + field %}
+    {{ field_param }}: Optional[str] = Query(None, description="{{ desc }}"),
+    {% else %}
+    {% set field_type = entity.search_field_types.get(field, "string") %}
+    {% if field_type == "array" or field_type == "object" %}
+    {# For array and object types, use string in the route parameter #}
+    {{ field }}: Optional[str] = Query(None, description="{{ entity.properties.get(field, {}).get("description", "Filter by " + field) }}"),
+    {% else %}
+    {% set py_type = type_mapping.get(field_type, "str") %}
+    {% set desc = entity.properties.get(field, {}).get("description", "Filter by " + field) %}
+    {{ field }}: Optional[{{ py_type }}] = Query(None, description="{{ desc }}"),
+    {% endif %}
+    {% endif %}
+    {% endfor %}
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Database = Depends(get_db)
+):
+    """Get all {{ entity.camel_name }}s with optional filtering and text search"""
+    service = {{ entity.pascal_name }}Service(db)
+    
+    # Check if any filters are applied
+    filters = {
+        {% for field in entity.search_fields %}
+        {% set field_parts = field.split('.') %}
+        {% if field_parts|length > 1 %}
+        {% set field_param = field_parts|join('_') %}
+        "{{ field }}": {{ field_param }},
+        {% else %}
+        "{{ field }}": {{ field }},
+        {% endif %}
+        {% endfor %}
+    }
+    
+    # Remove None values
+    filters = {k: v for k, v in filters.items() if v is not None}
+    
+    if filters:
+        result = await service.get_filtered(filters, skip, limit)
+    else:
+        result = await service.get_all(skip, limit)
+        
+    return result
+{% else %}
+@router.get("/", response_model=List[{{ entity.pascal_name }}Response])
+async def get_all_{{ entity.entity_name }}s(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Database = Depends(get_db)
+):
+    """Get all {{ entity.camel_name }}s with pagination"""
+    service = {{ entity.pascal_name }}Service(db)
+    result = await service.get_all(skip, limit)
+    return result
+{% endif %}
+
+@router.get("/{key}", response_model={{ entity.pascal_name }}Response)
+async def get_{{ entity.entity_name }}_by_key(
+    key: str = Path(..., title="{{ entity.pascal_name }} key"),
+    db: Database = Depends(get_db)
+):
+    """Get a {{ entity.camel_name }} by its key"""
+    service = {{ entity.pascal_name }}Service(db)
+    result = await service.get_by_key(key)
+    return result
+
+@router.patch("/{key}", response_model={{ entity.pascal_name }}Response)
+async def update_{{ entity.entity_name }}(
+    data: {{ entity.pascal_name }}Update,
+    key: str = Path(..., title="{{ entity.pascal_name }} key"),
+    db: Database = Depends(get_db)
+):
+    """Update a {{ entity.camel_name }} by its key"""
+    service = {{ entity.pascal_name }}Service(db)
+    result = await service.update(key, data.model_dump(exclude_unset=True))
+    return result
+
+@router.delete("/{key}", response_model={{ entity.pascal_name }}DeleteResponse)
+async def delete_{{ entity.entity_name }}(
+    key: str = Path(..., title="{{ entity.pascal_name }} key"),
+    db: Database = Depends(get_db)
+):
+    """Delete a {{ entity.camel_name }} by its key"""
+    service = {{ entity.pascal_name }}Service(db)
+    result = await service.delete(key)
+    return {"success": result}
+
+{% if entity.is_edge and entity.connected_entities|length == 2 %}
+{% set from_entity, to_entity = entity.connected_entities %}
+{% set from_pascal = from_entity|pascal %}
+{% set to_pascal = to_entity|pascal %}
+
+@router.get("/{{ from_entity }}/{from_key}/{{ to_entity }}/{to_key}", response_model=List[{{ entity.pascal_name }}Response])
+async def get_{{ entity.entity_name }}_by_from_to(
+    from_key: str = Path(..., title="{{ from_pascal }} key"),
+    to_key: str = Path(..., title="{{ to_pascal }} key"),
+    db: Database = Depends(get_db)
+):
+    """Get {{ entity.camel_name }} edges between a specific {{ from_entity }} and {{ to_entity }}"""
+    service = {{ entity.pascal_name }}Service(db)
+    result = await service.get_by_from_to(from_key, to_key)
+    return result
+
+@router.get("/{{ from_entity }}/{from_key}", response_model=List[{{ entity.pascal_name }}Response])
+async def get_{{ entity.entity_name }}_by_from(
+    from_key: str = Path(..., title="{{ from_pascal }} key"),
+    db: Database = Depends(get_db)
+):
+    """Get all {{ entity.camel_name }} edges from a specific {{ from_entity }}"""
+    service = {{ entity.pascal_name }}Service(db)
+    result = await service.get_by_from(from_key)
+    return result
+
+@router.get("/{{ to_entity }}/{to_key}", response_model=List[{{ entity.pascal_name }}Response])
+async def get_{{ entity.entity_name }}_by_to(
+    to_key: str = Path(..., title="{{ to_pascal }} key"),
+    db: Database = Depends(get_db)
+):
+    """Get all {{ entity.camel_name }} edges to a specific {{ to_entity }}"""
+    service = {{ entity.pascal_name }}Service(db)
+    result = await service.get_by_to(to_key)
+    return result
+{% endif %}
+
+{% if entity.custom_endpoints %}
+# Custom Routes
+{% for endpoint in entity.custom_endpoints %}
+{% if endpoint.expose_route %}
+# Endpoint: {{ endpoint.name }}
+{% set route_path = endpoint.route_path | default('/' + endpoint.name) %}
+{% set http_method = endpoint.http_method | default('get') %}
+# The implementation for this custom route is in a separate template file
+{% endif %}
+{% endfor %}
+{% endif %}
+
+{% for custom_route in entity.custom_routes|default([]) %}
+{% set endpoint = entity.custom_endpoints|selectattr("name", "equalto", custom_route)|first %}
+{% set route_path = endpoint.route_path if endpoint and endpoint.route_path is defined else "/" + custom_route.replace("_", "-") %}
+{% set http_method = endpoint.http_method if endpoint and endpoint.http_method is defined else "get" %}
+{% include 'custom/' + custom_route + '.route.jinja' %}
+{% endfor %}

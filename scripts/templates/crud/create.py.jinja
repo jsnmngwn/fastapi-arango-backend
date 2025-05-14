@@ -1,0 +1,92 @@
+async def create(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new {{ entity.camel_name }}"""
+        {% if entity.unique_combinations %}
+        # Check for unique combinations
+        {% for fields in entity.unique_combinations %}
+        # Check for existing {{ fields|join(', ') }} combination
+        query_conditions = []
+        field_values = {}
+        field_str_parts = []
+        
+        {% for field in fields %}
+        field_value = data.get("{{ field }}")
+        field_values["{{ field }}"] = field_value
+        query_conditions.append(f"doc.{{ field }} == @{{ field }}")
+        field_str_parts.append(f"{{ field }}='{field_value}'")
+        {% endfor %}
+        
+        logger.info(f"Checking uniqueness for {{ entity.camel_name }} with {' and '.join(field_str_parts)}")
+        
+        # Check if there are any records with this combination already
+        check_query = f"""FOR doc IN {self.collection_name} 
+            FILTER {" AND ".join(query_conditions)}
+            RETURN doc"""
+        
+        existing_records = list(self.db.aql.execute(
+            check_query,
+            bind_vars=field_values
+        ))
+        
+        if existing_records:
+            logger.error(f"Found existing {{ entity.camel_name }} with same {{ fields|join('/')}}: {existing_records}")
+            raise HTTPException(
+                status_code=409,
+                detail=f"A {{ entity.camel_name }} with {' and '.join(field_str_parts)} already exists"
+            )
+            
+        logger.info(f"No existing {{ entity.camel_name }} found with {' and '.join(field_str_parts)}")
+        {% endfor %}
+        {% endif %}
+        
+        # Apply default values
+        defaults = {
+        {% for field, prop in entity.properties.items() %}
+        {% if prop.get('default') is not none %}
+        {% if prop.default is true %}
+            "{{ field }}": True,
+        {% elif prop.default is false %}
+            "{{ field }}": False,
+        {% else %}
+            "{{ field }}": {{ prop.default|tojson }},
+        {% endif %}
+        {% endif %}
+        {% endfor %}
+        {% for field, value in entity.get('x-default-values', {}).items() %}
+        {% if value is true %}
+            "{{ field }}": True,
+        {% elif value is false %}
+            "{{ field }}": False,
+        {% else %}
+            "{{ field }}": {{ value|tojson }},
+        {% endif %}
+        {% endfor %}
+        }
+        
+        # Apply defaults for missing fields
+        for field, value in defaults.items():
+            if field not in data:
+                data[field] = value
+                
+        # Add timestamps
+        data["created_at"] = datetime.utcnow().isoformat()
+        data["updated_at"] = data["created_at"]
+        
+        # Convert date objects to ISO format strings
+        for field, value in list(data.items()):
+            if isinstance(value, date):
+                data[field] = value.isoformat()
+                
+        # Handle edge fields for ArangoDB (convert from_id -> _from, to_id -> _to)
+        {% if entity.is_edge %}
+        if "from_id" in data:
+            data["_from"] = data.pop("from_id")
+        if "to_id" in data:
+            data["_to"] = data.pop("to_id")
+        {% endif %}
+                
+        try:
+            result = self.db.collection(self.collection_name).insert(data, return_new=True)
+            return result["new"]
+        except Exception as e:
+            logger.error(f"Error creating {{ entity.camel_name }}: {e}")
+            raise HTTPException(status_code=500, detail=f"Error creating {{ entity.camel_name }}: {str(e)}")

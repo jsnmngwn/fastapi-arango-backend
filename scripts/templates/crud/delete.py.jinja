@@ -1,0 +1,40 @@
+async def delete(self, key: str) -> bool:
+        """Delete a {{ entity.camel_name }} by its key"""
+        try:
+            # Check if document exists
+            existing = self.db.collection(self.collection_name).get({"_key": key})
+            if not existing:
+                raise HTTPException(status_code=404, detail=f"{{ entity.pascal_name }} with key {key} not found")
+            
+            {% if entity.deletion_constraints %}
+            # Check for related documents in edge collections that would prevent deletion
+            {% for edge_collection in entity.deletion_constraints %}
+            # Check {{ edge_collection }} collection
+            edge_query = f"""
+                FOR edge IN {{ edge_collection }}
+                FILTER edge._from == @doc_id OR edge._to == @doc_id
+                LIMIT 1
+                RETURN 1
+            """
+            
+            result = self.db.aql.execute(
+                edge_query,
+                bind_vars={"doc_id": f"{self.collection_name}/{key}"}
+            )
+            
+            if list(result):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Cannot delete {{ entity.pascal_name }} with key {key} because it has related records in {{ edge_collection }}"
+                )
+            {% endfor %}
+            {% endif %}
+            
+            # Delete the document
+            self.db.collection(self.collection_name).delete({"_key": key})
+            return True
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error deleting {{ entity.camel_name }}: {e}")
+            raise HTTPException(status_code=500, detail=f"Error deleting {{ entity.camel_name }}: {str(e)}")

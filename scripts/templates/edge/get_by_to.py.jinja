@@ -1,0 +1,20 @@
+async def get_by_to(self, to_key: str) -> List[Dict[str, Any]]:
+        """Get all edges to a specific {{ entity.connected_entities[1] }}"""
+        try:
+            to_id = f"{{ entity.connected_entities[1] }}/{to_key}"
+            
+            query = f"""
+                FOR edge IN {self.collection_name}
+                FILTER edge._to == @to_id
+                RETURN edge
+            """
+            
+            result = self.db.aql.execute(
+                query, 
+                bind_vars={"to_id": to_id}
+            )
+            
+            return [doc for doc in result]
+        except Exception as e:
+            logger.error(f"Error fetching {{ entity.camel_name }} by to: {e}")
+            raise HTTPException(status_code=500, detail=f"Error fetching {{ entity.camel_name }}: {str(e)}")

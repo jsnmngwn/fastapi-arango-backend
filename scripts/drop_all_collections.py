@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Script to drop the fastapi_arango_db ArangoDB database.
+Script to drop the vb_stat_logger ArangoDB database.
 
-This script will completely delete the fastapi_arango_db database from the ArangoDB server.
+This script will completely delete the vb_stat_logger database from the ArangoDB server.
 Use with caution as this action cannot be undone.
 """
 
@@ -20,7 +20,7 @@ from backend.db import DB_HOST, DB_NAME, DB_PASS, DB_USER
 
 
 def drop_database():
-    """Drop the entire fastapi_arango_db database from the ArangoDB server."""
+    """Drop the entire vb_stat_logger database from the ArangoDB server."""
     logger.info(f"Starting to drop the {DB_NAME} database")
 
     # Connect to the _system database to drop our application database

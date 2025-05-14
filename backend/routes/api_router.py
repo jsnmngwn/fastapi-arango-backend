@@ -4,7 +4,7 @@ API router factory for creating and registering all API routes.
 
 from fastapi import APIRouter
 
-from .entities import get_entity_routers
+from .entities import entity_routers
 
 
 def create_api_router() -> APIRouter:
@@ -18,7 +18,7 @@ def create_api_router() -> APIRouter:
     api_router = APIRouter(prefix="/api")
 
     # Include all subrouters from the entities registry
-    for router in get_entity_routers():
+    for router in entity_routers:
         api_router.include_router(router)
 
     return api_router

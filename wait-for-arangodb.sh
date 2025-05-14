@@ -5,8 +5,8 @@ set -e
 
 host="$1"
 shift
-user="root"
-password="rootpassword"
+user="${ARANGO_USER:-root}"
+password="${ARANGO_PASSWORD:-changeme}"
 
 echo "Waiting for ArangoDB at $host..."
 echo "Using credentials: $user:$password"

@@ -1,10 +1,10 @@
 # Basic CRUD API Generator Guide
 
-This guide explains how the `generate_basic_crud_api_endpoints.py` script works, its capabilities, and how to use custom schema extensions to generate powerful, customized API endpoints for the VB Stat Logger application.
+This guide explains how the `generate_basic_crud_api_endpoints.py` script works, its capabilities, and how to use custom schema extensions to generate powerful, customized API endpoints for any business application.
 
 ## Introduction
 
-The basic CRUD API generator (`generate_basic_crud_api_endpoints.py`) is a utility that automatically creates all the necessary components for a complete CRUD (Create, Read, Update, Delete) API based on JSON Schema definitions. It follows the architectural patterns and best practices established in the VB Stat Logger project and generates consistent, well-structured code with proper error handling and validation.
+The basic CRUD API generator (`generate_basic_crud_api_endpoints.py`) is a utility that automatically creates all the necessary components for a complete CRUD (Create, Read, Update, Delete) API based on JSON Schema definitions. It follows modern architectural patterns and best practices, generating consistent, well-structured code with proper error handling and validation.
 
 The script is only intended to create the basic APIs.  Custom API endpoints can be added to the existing files, or manually created in custom endpoint files.  If any custom API endpoints are added to an existing file and the generator is re-run, the custom endpoints will be removed.
 
@@ -442,4 +442,4 @@ By following these patterns, you can safely extend the generated API with custom
 
 ## Conclusion
 
-The basic CRUD API generator streamlines API development by generating consistent, well-structured code that follows best practices. By leveraging JSON Schema and custom extensions, you can rapidly build robust APIs for your VB Stat Logger application.
+The basic CRUD API generator streamlines API development by generating consistent, well-structured code that follows best practices. By leveraging JSON Schema and custom extensions, you can rapidly build robust APIs for your business application.

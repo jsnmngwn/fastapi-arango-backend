@@ -1,0 +1,167 @@
+"""
+Pydantic schemas for {{ entity.pascal_name }} entity.
+"""
+from datetime import datetime, date
+from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field
+
+class {{ entity.pascal_name }}Base(BaseModel):
+    """Base schema for {{ entity.pascal_name }}"""
+    {% for prop_name, prop_info in entity.properties.items() %}
+    {% if not prop_name.startswith('_') %}
+    {% set prop_type = type_mapping.get(prop_info.get('type', 'string'), 'Any') %}
+    {% if 'format' in prop_info %}
+    {% set prop_type = format_mapping.get(prop_info['format'], prop_type) %}
+    {% endif %}
+    {% set is_optional = prop_name not in entity.required_fields %}
+    {% if is_optional %}
+    {% if prop_info.get('description') %}
+    {{ prop_name }}: {{ prop_type }} = Field(default=None, description="{{ prop_info.description }}")
+    {% else %}
+    {{ prop_name }}: {{ prop_type }} = None
+    {% endif %}
+    {% else %}
+    {% if prop_info.get('description') %}
+    {{ prop_name }}: {{ prop_type }} = Field(description="{{ prop_info.description }}")
+    {% else %}
+    {{ prop_name }}: {{ prop_type }}
+    {% endif %}
+    {% endif %}
+    {% endif %}
+    {% endfor %}
+
+class {{ entity.pascal_name }}Create(BaseModel):
+    """Schema for creating a new {{ entity.pascal_name }}"""
+    {% if entity.is_edge %}
+    {% set from_desc = entity.properties.get('_from', {}).get('description', 'Source document handle') %}
+    {% set to_desc = entity.properties.get('_to', {}).get('description', 'Target document handle') %}
+    from_id: str = Field(..., alias="_from", description="{{ from_desc }}")
+    to_id: str = Field(..., alias="_to", description="{{ to_desc }}")
+    {% endif %}
+    {% for prop_name, prop_info in entity.properties.items() %}
+    {% if not prop_name.startswith('_') or (entity.is_edge and prop_name in ['_from', '_to']) %}
+    {% if not (entity.is_edge and prop_name in ['_from', '_to']) %}
+    {% set prop_type = type_mapping.get(prop_info.get('type', 'string'), 'Any') %}
+    {% if 'format' in prop_info %}
+    {% set prop_type = format_mapping.get(prop_info['format'], prop_type) %}
+    {% endif %}
+    {% set is_required = prop_name in entity.required_fields %}
+    {% if is_required %}
+    {% if prop_info.get('description') %}
+    {{ prop_name }}: {{ prop_type }} = Field(description="{{ prop_info.description }}")
+    {% else %}
+    {{ prop_name }}: {{ prop_type }}
+    {% endif %}
+    {% else %}
+    {% if prop_info.get('description') %}
+    {{ prop_name }}: Optional[{{ prop_type }}] = Field(default=None, description="{{ prop_info.description }}")
+    {% else %}
+    {{ prop_name }}: Optional[{{ prop_type }}] = None
+    {% endif %}
+    {% endif %}
+    {% endif %}
+    {% endif %}
+    {% endfor %}
+    {% if entity.is_edge %}
+    
+    model_config = {
+        "populate_by_name": True,
+        "json_schema_extra": {
+            "example": {
+                "from_id": "collection/123",
+                "to_id": "collection/456"
+            }
+        }
+    }
+    {% endif %}
+
+class {{ entity.pascal_name }}Update(BaseModel):
+    """Schema for updating an existing {{ entity.pascal_name }}"""
+    {% for prop_name, prop_info in entity.properties.items() %}
+    {% if not prop_name.startswith('_') %}
+    {% set prop_type = type_mapping.get(prop_info.get('type', 'string'), 'Any') %}
+    {% if 'format' in prop_info %}
+    {% set prop_type = format_mapping.get(prop_info['format'], prop_type) %}
+    {% endif %}
+    {% if prop_info.get('description') %}
+    {{ prop_name }}: Optional[{{ prop_type }}] = Field(default=None, description="{{ prop_info.description }}")
+    {% else %}
+    {{ prop_name }}: Optional[{{ prop_type }}] = None
+    {% endif %}
+    {% endif %}
+    {% endfor %}
+
+class {{ entity.pascal_name }}InDB(BaseModel):
+    """Complete {{ entity.pascal_name }} with DB fields"""
+    {% for prop_name, prop_info in entity.properties.items() %}
+    {% set prop_type = type_mapping.get(prop_info.get('type', 'string'), 'Any') %}
+    {% if 'format' in prop_info %}
+    {% set prop_type = format_mapping.get(prop_info['format'], prop_type) %}
+    {% endif %}
+    {% set is_optional = prop_name not in entity.required_fields %}
+    {% set type_str = 'Optional[' + prop_type + ']' if is_optional else prop_type %}
+    {% if prop_name.startswith('_') %}
+    {% set field_name = prop_name[1:] %}
+    {% if prop_name in ['_from', '_to'] %}
+    {% set field_name = field_name + '_id' %}
+    {% endif %}
+    {% if prop_info.get('description') %}
+    {{ field_name }}: {{ type_str }} = Field({% if is_optional %}default=None, {% endif %}alias="{{ prop_name }}", description="{{ prop_info.description }}")
+    {% else %}
+    {{ field_name }}: {{ type_str }} = Field({% if is_optional %}default=None, {% endif %}alias="{{ prop_name }}")
+    {% endif %}
+    {% else %}
+    {% if is_optional %}
+    {% if prop_info.get('description') %}
+    {{ prop_name }}: {{ prop_type }} = Field(default=None, description="{{ prop_info.description }}")
+    {% else %}
+    {{ prop_name }}: {{ prop_type }} = None
+    {% endif %}
+    {% else %}
+    {% if prop_info.get('description') %}
+    {{ prop_name }}: {{ prop_type }} = Field(description="{{ prop_info.description }}")
+    {% else %}
+    {{ prop_name }}: {{ prop_type }}
+    {% endif %}
+    {% endif %}
+    {% endif %}
+    {% endfor %}
+    
+    model_config = {
+        "populate_by_name": True,
+        "json_schema_extra": {
+            "example": {
+                {% if 'id' in entity.properties %}
+                "id": "{{ entity.entity_name }}/123456",
+                {% endif %}
+                {% if 'key' in entity.properties %}
+                "key": "123456",
+                {% endif %}
+                {% if entity.is_edge %}
+                "from_id": "collection/123",
+                "to_id": "collection/456",
+                {% endif %}
+                {% for prop_name, prop_info in entity.properties.items() %}
+                {% if not prop_name.startswith('_') %}
+                {% if prop_info.get('type') == 'string' %}
+                "{{ prop_name }}": "Example value"{% if not loop.last %},{% endif %}
+                {% elif prop_info.get('type') == 'integer' %}
+                "{{ prop_name }}": 42{% if not loop.last %},{% endif %}
+                {% elif prop_info.get('type') == 'number' %}
+                "{{ prop_name }}": 3.14{% if not loop.last %},{% endif %}
+                {% elif prop_info.get('type') == 'boolean' %}
+                "{{ prop_name }}": True{% if not loop.last %},{% endif %}
+                {% endif %}
+                {% endif %}
+                {% endfor %}
+            }
+        }
+    }
+
+class {{ entity.pascal_name }}Response({{ entity.pascal_name }}InDB):
+    """API response model for {{ entity.pascal_name }}"""
+    pass
+
+class {{ entity.pascal_name }}DeleteResponse(BaseModel):
+    """Response model for successful delete operations"""
+    success: bool
