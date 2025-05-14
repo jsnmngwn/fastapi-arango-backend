@@ -18,12 +18,13 @@ load_dotenv(dotenv_path=env_path)
 ARANGO_HOST = os.environ.get("ARANGO_HOST", "http://localhost:8529")
 ARANGO_USER = os.environ.get("ARANGO_USER", "root")
 ARANGO_PASS = os.environ.get("ARANGO_PASSWORD", "rootpassword")
-DB_NAME = os.environ.get("ARANGO_DB", "vb_stat_logger")
+DB_NAME = os.environ.get("ARANGO_DB", "app_db")
 
 # Path to config file
 CONFIG_PATH = Path(__file__).parent.parent / "backend" / "config" / "collections.json"
 
-# Default collections in case config file is not found
+
+# Default collections in case config file is not found (generic example)
 DOCUMENT_COLLECTIONS = [
     "users",
     "products",
@@ -38,6 +39,7 @@ EDGE_COLLECTIONS = [
     "order_product",
 ]
 
+# Graph support is optional; kept generic for demo purposes
 GRAPH_NAME = "example_graph"
 GRAPH_EDGES = [
     {
