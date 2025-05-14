@@ -1,6 +1,6 @@
-# API Endpoint Creation Guide for VB Stat Logger
+# API Endpoint Creation Guide
 
-This document provides a step-by-step guide for creating new CRUD API endpoints in the VB Stat Logger application. There are two main approaches:
+This document provides a step-by-step guide for creating new CRUD API endpoints in a generic business application. There are two main approaches:
 
 1. **Using the Generator Script** - For standard CRUD operations using the automated generator
 2. **Manual Creation** - For custom endpoints that require specialized logic
@@ -9,7 +9,7 @@ This guide focuses on both approaches, explaining how to leverage the automated 
 
 ## Overview of Components
 
-Each API endpoint in VB Stat Logger consists of:
+Each API endpoint consists of:
 
 1. **Schema Definition** - Pydantic models that define data structure and validation
 2. **Service Layer** - Business logic for database operations
@@ -900,7 +900,7 @@ FastAPI automatically generates Swagger UI documentation that you can use to tes
 
 ## Conclusion
 
-The VB Stat Logger uses a combination of automated generation and custom development to create efficient, consistent APIs. The generator script handles the boilerplate CRUD operations, while custom endpoints provide specialized business logic.
+This project uses a combination of automated generation and custom development to create efficient, consistent APIs. The generator script handles the boilerplate CRUD operations, while custom endpoints provide specialized business logic.
 
 For most simple entities, the generator script is the fastest way to create a fully functional API. For complex business logic, manual development or extensions provide the needed flexibility.
 

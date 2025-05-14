@@ -1,0 +1,15 @@
+{
+  "{{ entity.entity_name }}": {
+    "title": "{{ entity.pascal_name }} API",
+    "description": "{{ entity.description or 'API for managing ' + entity.pascal_name + ' resources' }}",
+    "basePath": "/{{ entity.entity_name }}",
+    "tags": ["{{ entity.pascal_name }}"],
+    {% if entity.is_edge %}
+    "isEdge": true,
+    "connectedEntities": {{ entity.connected_entities | tojson }},
+    {% else %}
+    "isEdge": false,
+    {% endif %}
+    "searchFields": {{ entity.search_fields | tojson }}
+  }
+}

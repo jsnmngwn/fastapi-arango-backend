@@ -32,15 +32,3 @@ services:
 
 volumes:
   arangodb-data:
-      dockerfile: Dockerfile.android
-    container_name: android-emulator
-    network_mode: "host"
-    environment:
-      - ANDROID_HOME=/opt/android-sdk
-    devices:
-      - /dev/kvm:/dev/kvm
-    privileged: true
-    restart: unless-stopped
-
-volumes:
-  arangodb-data:

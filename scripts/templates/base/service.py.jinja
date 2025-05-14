@@ -1,0 +1,58 @@
+"""
+Service for {{ entity.pascal_name }} operations.
+"""
+from datetime import datetime, timezone, date
+from typing import Dict, List, Optional, Any, Union
+from arango.database import Database
+from fastapi import HTTPException
+from loguru import logger
+
+class {{ entity.pascal_name }}Service:
+    def __init__(self, db: Database):
+        self.db = db
+        self.collection_name = "{{ entity.entity_name }}"
+        
+        # Ensure collection exists
+        if not self.db.has_collection(self.collection_name):
+            self.db.create_collection(
+                self.collection_name, 
+                edge={{ entity.is_edge|py_bool }}
+            )
+        {% if entity.unique_combinations %}
+        # Create unique composite indexes
+        {% for fields in entity.unique_combinations %}
+        index_name = "{{ fields|join('_') }}_unique_idx"
+        if index_name not in [idx["name"] for idx in self.db.collection(self.collection_name).indexes()]:
+            self.db.collection(self.collection_name).add_persistent_index(
+                fields={{ fields|tojson }}, 
+                unique=True,
+                name=index_name
+            )
+        {% endfor %}
+        {% endif %}
+    
+    {% include 'crud/create.py.jinja' %}
+    
+    {% include 'crud/get_all.py.jinja' %}
+    
+    {% include 'crud/get_by_key.py.jinja' %}
+    
+    {% include 'crud/update.py.jinja' %}
+    
+    {% include 'crud/delete.py.jinja' %}
+    
+    {% if entity.is_edge and entity.connected_entities|length == 2 %}
+    {% include 'edge/get_by_from_to.py.jinja' %}
+    
+    {% include 'edge/get_by_from.py.jinja' %}
+    
+    {% include 'edge/get_by_to.py.jinja' %}
+    {% endif %}
+    
+    {% if entity.search_fields %}
+    {% include 'crud/get_filtered.py.jinja' %}
+    {% endif %}
+    
+    {% for custom_function in entity.custom_functions|default([]) %}
+    {% include "custom/" ~ custom_function ~ ".py.jinja" %}
+    {% endfor %}

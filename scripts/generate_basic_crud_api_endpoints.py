@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# filepath: /home/jason/github/vb-stat-logger/scripts/generate_crud_api.py
+# filepath: /home/jason/github/vb-stat-logger/scripts/generate_basic_crud_api_endpoints.py
 """
 CRUD API Generator
 Generates route, service, and schema files from JSON schema definitions
@@ -11,6 +11,8 @@ import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
+
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 from loguru import logger
 
 
@@ -28,12 +30,15 @@ def snake_to_camel(snake_str: str) -> str:
 def update_collection_config(
     entity_info, is_edge=None, from_collection=None, to_collection=None
 ):
-    """Update the collections.json configuration file with the new collection."""
+    """Update the collections.json configuration file with the new collection.
+    
+    Uses singular form for collection names to ensure consistency with service classes.
+    """
     # Extract values from entity_info if a dict is provided
     if isinstance(entity_info, dict):
         collection_name = entity_info.get("entity_name", "")
         is_edge = entity_info.get("is_edge", False) if is_edge is None else is_edge
-
+        
         # For edge collections, get connected entities
         if is_edge and not from_collection and not to_collection:
             connected_entities = entity_info.get("connected_entities", [])
@@ -43,7 +48,7 @@ def update_collection_config(
         # If entity_info is just the collection name as a string
         collection_name = entity_info
         is_edge = is_edge if is_edge is not None else False
-
+        
     config_path = (
         Path(__file__).parent.parent / "backend" / "config" / "collections.json"
     )
@@ -70,18 +75,9 @@ def update_collection_config(
 
         # Handle graph edge definition
         if from_collection and to_collection:
-            # Handle pluralization for collections ending in 'y'
-            from_coll = (
-                from_collection[:-1] + "ies"
-                if from_collection.endswith("y")
-                else from_collection + "s"
-            )
-            to_coll = (
-                to_collection[:-1] + "ies"
-                if to_collection.endswith("y")
-                else to_collection + "s"
-            )
-
+            # Use singular form for collections consistently
+            # No pluralization needed as service classes use singular form
+            
             # Check if this edge definition already exists
             edge_exists = False
             for edge in config["graph_edges"]:
@@ -93,19 +89,14 @@ def update_collection_config(
                 config["graph_edges"].append(
                     {
                         "edge_collection": collection_name,
-                        "from_collections": [from_coll],
-                        "to_collections": [to_coll],
+                        "from_collections": [from_collection],
+                        "to_collections": [to_collection],
                     }
                 )
     else:
-        # Handle pluralization for collections ending in 'y'
-        coll_plural = (
-            collection_name[:-1] + "ies"
-            if collection_name.endswith("y")
-            else collection_name + "s"
-        )
-        if coll_plural not in config["document_collections"]:
-            config["document_collections"].append(coll_plural)
+        # Use singular form consistently (no pluralization)
+        if collection_name not in config["document_collections"]:
+            config["document_collections"].append(collection_name)
 
     # Write the updated config back to the file
     with open(config_path, "w") as f:
@@ -145,6 +136,30 @@ def parse_schema(schema_path: str) -> Dict[str, Any]:
         if field in schema.get("properties", {}):
             field_type = schema["properties"][field].get("type", "string")
             search_field_types[field] = field_type
+            
+    # Extract deletion constraints
+    deletion_constraints = schema.get("x-deletion-constraints", [])
+    
+    # Extract custom endpoints (new format)
+    custom_endpoints = schema.get("x-custom-endpoints", [])
+    
+    # For backward compatibility, also handle the old format
+    custom_functions = schema.get("x-custom-functions", [])
+    custom_routes = schema.get("x-custom-routes", [])
+    
+    # Convert old format to new format if needed
+    if custom_functions and not custom_endpoints:
+        for func_name in custom_functions:
+            endpoint = {
+                "name": func_name,
+                "expose_route": func_name in custom_routes
+            }
+            custom_endpoints.append(endpoint)
+
+    # Extract just the function names for template rendering
+    custom_functions = [endpoint["name"] for endpoint in custom_endpoints]
+    # Extract route-enabled function names
+    custom_routes = [endpoint["name"] for endpoint in custom_endpoints if endpoint.get("expose_route", True)]
 
     return {
         "entity_name": entity_name,
@@ -159,17 +174,39 @@ def parse_schema(schema_path: str) -> Dict[str, Any]:
         "unique_combinations": unique_combinations,
         "search_fields": search_fields,
         "search_field_types": search_field_types,
+        "deletion_constraints": deletion_constraints,
+        "custom_functions": custom_functions,
+        "custom_routes": custom_routes,
+        "custom_endpoints": custom_endpoints,
+        "x-default-values": schema.get("x-default-values", {}),
     }
 
 
-def generate_schema_file(entity_info: Dict[str, Any], output_dir: str) -> None:
-    """Generate Pydantic schema file"""
-    entity_name = entity_info["entity_name"]
-    pascal_name = entity_info["pascal_name"]
-    properties = entity_info["properties"]
-    required = entity_info["required_fields"]
-    is_edge = entity_info["is_edge"]
+def get_jinja_env():
+    """Create and return a Jinja2 environment"""
+    templates_dir = os.path.join(os.path.dirname(__file__), "templates")
+    env = Environment(
+        loader=FileSystemLoader(templates_dir),
+        autoescape=None,  # Disable auto-escaping for JSON generation
+        trim_blocks=True,  # Remove first newline after a block
+        lstrip_blocks=True,  # Strip tabs and spaces from the beginning of a line to the start of a block
+        keep_trailing_newline=True  # Keep the newline when rendering templates
+    )
+    
+    # Register custom filters
+    env.filters["pascal"] = snake_to_pascal
+    env.filters["camel"] = snake_to_camel
+    
+    # Special Python-specific filter for bool values
+    env.filters["py_bool"] = lambda x: "True" if x else "False"
+    
+    return env
 
+
+def generate_schema_file(entity_info: Dict[str, Any], output_dir: str) -> None:
+    """Generate Pydantic schema file using Jinja2 template"""
+    env = get_jinja_env()
+    
     # Map JSON schema types to Python types
     type_mapping = {
         "string": "str",
@@ -179,831 +216,233 @@ def generate_schema_file(entity_info: Dict[str, Any], output_dir: str) -> None:
         "array": "List[Any]",
         "object": "Dict[str, Any]",
     }
-
+    
     # Special formats
     format_mapping = {"date-time": "datetime", "date": "date"}
-
-    template = f"""\"\"\"
-Pydantic schemas for {pascal_name} entity.
-\"\"\"
-from datetime import datetime, date
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
-
-class {pascal_name}Base(BaseModel):
-    \"\"\"Base schema for {pascal_name}\"\"\"
-"""
-
-    # Add fields from properties
-    for prop_name, prop_info in properties.items():
-        # Skip internal fields for the base model
-        if prop_name.startswith("_"):
-            continue
-
-        prop_type = type_mapping.get(prop_info.get("type", "string"), "Any")
-
-        # Handle formats like date-time
-        if "format" in prop_info:
-            prop_type = format_mapping.get(prop_info["format"], prop_type)
-
-        # Make optional if not required
-        is_optional = prop_name not in required
-        type_str = f"Optional[{prop_type}]" if is_optional else prop_type
-
-        # Add field description if available
-        desc = prop_info.get("description", "")
-
-        # FIX: Handle optional fields with Field() attributes properly
-        if is_optional:
-            if desc:
-                template += f'    {prop_name}: {prop_type} = Field(default=None, description="{desc}")\n'
-            else:
-                template += f"    {prop_name}: {prop_type} = None\n"
-        else:
-            if desc:
-                template += (
-                    f'    {prop_name}: {prop_type} = Field(description="{desc}")\n'
-                )
-            else:
-                template += f"    {prop_name}: {prop_type}\n"
-
-    # Create schema
-    template += f"""
-
-class {pascal_name}Create(BaseModel):
-    \"\"\"Schema for creating a new {pascal_name}\"\"\"
-"""
-
-    # For edge collections, we need _from and _to as special fields
-    if is_edge:
-        # Add the edge fields with aliases
-        from_desc = properties.get("_from", {}).get(
-            "description", "Source document handle"
-        )
-        to_desc = properties.get("_to", {}).get("description", "Target document handle")
-
-        template += f"""    from_id: str = Field(..., alias="_from", description="{from_desc}")
-    to_id: str = Field(..., alias="_to", description="{to_desc}")
-"""
-
-    # Add all fields to the creation model (both required and optional)
-    for prop_name, prop_info in properties.items():
-        # Skip internal fields for creation except for edge fields
-        if prop_name.startswith("_") and prop_name not in ["_from", "_to"]:
-            continue
-
-        # Skip _from and _to if we already added them for edge collections
-        if is_edge and prop_name in ["_from", "_to"]:
-            continue
-
-        prop_type = type_mapping.get(prop_info.get("type", "string"), "Any")
-
-        # Handle formats like date-time
-        if "format" in prop_info:
-            prop_type = format_mapping.get(prop_info["format"], prop_type)
-
-        # Required fields need special handling
-        is_required = prop_name in required
-
-        # Add field description if available
-        desc = prop_info.get("description", "")
-
-        if is_required:
-            if desc:
-                template += (
-                    f'    {prop_name}: {prop_type} = Field(description="{desc}")\n'
-                )
-            else:
-                template += f"    {prop_name}: {prop_type}\n"
-        else:
-            # Optional fields should have default=None
-            if desc:
-                template += f'    {prop_name}: Optional[{prop_type}] = Field(default=None, description="{desc}")\n'
-            else:
-                template += f"    {prop_name}: Optional[{prop_type}] = None\n"
-
-    # Add model_config for aliases
-    if is_edge:
-        template += """
-    model_config = {
-        "populate_by_name": True,
-        "json_schema_extra": {
-            "example": {
-                "from_id": "collection/123",
-                "to_id": "collection/456"
-            }
-        }
-    }
-"""
-
-    # Update schema with all fields optional
-    template += f"""
-
-class {pascal_name}Update(BaseModel):
-    \"\"\"Schema for updating an existing {pascal_name}\"\"\"
-"""
-
-    for prop_name, prop_info in properties.items():
-        # Skip internal fields for updates
-        if prop_name.startswith("_"):
-            continue
-
-        prop_type = type_mapping.get(prop_info.get("type", "string"), "Any")
-
-        # Handle formats like date-time
-        if "format" in prop_info:
-            prop_type = format_mapping.get(prop_info["format"], prop_type)
-
-        # All fields are optional for updates
-        type_str = f"Optional[{prop_type}]"
-
-        # Add field description if available
-        desc = prop_info.get("description", "")
-        if desc:
-            template += f'    {prop_name}: {type_str} = Field(default=None, description="{desc}")\n'
-        else:
-            template += f"    {prop_name}: {type_str} = None\n"
-
-    # Full response model
-    template += f"""
-
-class {pascal_name}InDB(BaseModel):
-    \"\"\"Complete {pascal_name} with DB fields\"\"\"
-"""
-
-    # Add all fields to the response model, with aliases for underscore fields
-    for prop_name, prop_info in properties.items():
-        prop_type = type_mapping.get(prop_info.get("type", "string"), "Any")
-
-        # Handle formats like date-time
-        if "format" in prop_info:
-            prop_type = format_mapping.get(prop_info["format"], prop_type)
-
-        # Make optional if not required
-        is_optional = prop_name not in required
-        type_str = f"Optional[{prop_type}]" if is_optional else prop_type
-
-        # Handle underscore fields
-        if prop_name.startswith("_"):
-            # Convert _id to id, _key to key, _from to from_id, _to to to_id
-            field_name = prop_name[1:]
-            if prop_name in ["_from", "_to"]:
-                field_name = f"{field_name}_id"
-
-            desc = prop_info.get("description", "")
-
-            if is_optional:
-                template += f'    {field_name}: {type_str} = Field(default=None, alias="{prop_name}"'
-            else:
-                template += f'    {field_name}: {type_str} = Field(alias="{prop_name}"'
-
-            if desc:
-                template += f', description="{desc}"'
-            template += ")\n"
-        else:
-            # Regular fields
-            desc = prop_info.get("description", "")
-
-            # FIX: Handle optional fields with Field() attributes properly
-            if is_optional:
-                if desc:
-                    template += f'    {prop_name}: {prop_type} = Field(default=None, description="{desc}")\n'
-                else:
-                    template += f"    {prop_name}: {prop_type} = None\n"
-            else:
-                if desc:
-                    template += (
-                        f'    {prop_name}: {prop_type} = Field(description="{desc}")\n'
-                    )
-                else:
-                    template += f"    {prop_name}: {prop_type}\n"
-
-    # Add model_config for using aliases in response model
-    template += """
-    model_config = {
-        "populate_by_name": True,
-        "json_schema_extra": {
-            "example": {
-"""
-
-    # Add a simple example for visualization in Swagger
-    example = {}
-    if "id" in template:
-        example["id"] = f"{entity_name}/123456"
-    if "key" in template:
-        example["key"] = "123456"
-    if is_edge:
-        example["from_id"] = "collection/123"
-        example["to_id"] = "collection/456"
-
-    # Add some example values for regular fields
-    for prop_name, prop_info in properties.items():
-        if not prop_name.startswith("_"):
-            if prop_info.get("type") == "string":
-                example[prop_name] = "Example value"
-            elif prop_info.get("type") == "integer":
-                example[prop_name] = 42
-            elif prop_info.get("type") == "number":
-                example[prop_name] = 3.14
-            elif prop_info.get("type") == "boolean":
-                example[prop_name] = True
-
-    # Add the example to the template
-    for key, value in example.items():
-        if isinstance(value, str):
-            template += f'                "{key}": "{value}",\n'
-        else:
-            template += f'                "{key}": {value},\n'
-
-    # Close the example configuration
-    template = template.rstrip(",\n") + "\n"
-    template += """            }
-        }
-    }
-"""
-
-    # Add response models needed by routes
-    template += f"""
-
-class {pascal_name}Response({pascal_name}InDB):
-    \"\"\"API response model for {pascal_name}\"\"\"
-    pass
-
-class {pascal_name}DeleteResponse(BaseModel):
-    \"\"\"Response model for successful delete operations\"\"\"
-    success: bool
-"""
-
-    # Write to file
+    
+    template = env.get_template("base/schema.py.jinja")
+    rendered = template.render(
+        entity=entity_info,
+        type_mapping=type_mapping,
+        format_mapping=format_mapping
+    )
+    
     os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, f"{entity_name}.py")
+    output_path = os.path.join(output_dir, f"{entity_info['entity_name']}.py")
+    
+    # Fix indentation to ensure class fields are properly indented
+    lines = rendered.split('\n')
+    properly_indented = []
+    class_def_found = False
+    
+    for line in lines:
+        if line.strip().startswith('class '):
+            class_def_found = True
+            properly_indented.append(line)
+        elif class_def_found and line.strip() and not line.startswith('    ') and not line.startswith('"""'):
+            # Add indentation to class fields that aren't already indented
+            properly_indented.append('    ' + line)
+        else:
+            properly_indented.append(line)
+    
     with open(output_path, "w") as f:
-        f.write(template)
-
+        f.write('\n'.join(properly_indented))
+        
     print(f"Generated schema file: {output_path}")
 
 
 def generate_service_file(entity_info: Dict[str, Any], output_dir: str) -> None:
-    """Generate service class file with uniqueness constraints"""
-    entity_name = entity_info["entity_name"]
-    pascal_name = entity_info["pascal_name"]
-    camel_name = entity_info["camel_name"]
-    is_edge = entity_info["is_edge"]
-
-    # Get unique combinations for composite indexes
-    unique_combinations = entity_info.get("unique_combinations", [])
-
-    # For edge collection, determine the connected entities
-    edge_methods = ""
-    if is_edge and len(entity_info["connected_entities"]) == 2:
-        from_entity, to_entity = entity_info["connected_entities"]
-        from_pascal = snake_to_pascal(from_entity)
-        to_pascal = snake_to_pascal(to_entity)
-
-        edge_methods = f"""
-    async def get_by_from_to(self, from_key: str, to_key: str) -> List[Dict[str, Any]]:
-        \"\"\"Get edges between specific {from_entity} and {to_entity}\"\"\"
-        try:
-            from_id = f"{from_entity}/{{from_key}}"
-            to_id = f"{to_entity}/{{to_key}}"
-            
-            query = f\"\"\"
-                FOR edge IN {{self.collection_name}}
-                FILTER edge._from == @from_id AND edge._to == @to_id
-                RETURN edge
-            \"\"\"
-            
-            result = self.db.aql.execute(
-                query, 
-                bind_vars={{"from_id": from_id, "to_id": to_id}}
-            )
-            
-            return [doc for doc in result]
-        except Exception as e:
-            logger.error(f"Error fetching {camel_name} by from/to: {{e}}")
-            raise HTTPException(status_code=500, detail=f"Error fetching {camel_name}: {{str(e)}}")
+    """Generate service class file using Jinja2 template"""
+    env = get_jinja_env()
+    template = env.get_template("base/service.py.jinja")
     
-    async def get_by_from(self, from_key: str) -> List[Dict[str, Any]]:
-        \"\"\"Get all edges from a specific {from_entity}\"\"\"
-        try:
-            from_id = f"{from_entity}/{{from_key}}"
-            
-            query = f\"\"\"
-                FOR edge IN {{self.collection_name}}
-                FILTER edge._from == @from_id
-                RETURN edge
-            \"\"\"
-            
-            result = self.db.aql.execute(
-                query, 
-                bind_vars={{"from_id": from_id}}
-            )
-            
-            return [doc for doc in result]
-        except Exception as e:
-            logger.error(f"Error fetching {camel_name} by from: {{e}}")
-            raise HTTPException(status_code=500, detail=f"Error fetching {camel_name}: {{str(e)}}")
+    rendered = template.render(
+        entity=entity_info
+    )
     
-    async def get_by_to(self, to_key: str) -> List[Dict[str, Any]]:
-        \"\"\"Get all edges to a specific {to_entity}\"\"\"
-        try:
-            to_id = f"{to_entity}/{{to_key}}"
-            
-            query = f\"\"\"
-                FOR edge IN {{self.collection_name}}
-                FILTER edge._to == @to_id
-                RETURN edge
-            \"\"\"
-            
-            result = self.db.aql.execute(
-                query, 
-                bind_vars={{"to_id": to_id}}
-            )
-            
-            return [doc for doc in result]
-        except Exception as e:
-            logger.error(f"Error fetching {camel_name} by to: {{e}}")
-            raise HTTPException(status_code=500, detail=f"Error fetching {camel_name}: {{str(e)}}")
-"""
-
-    # Prepare index creation code for unique combinations
-    index_code = ""
-    if unique_combinations:
-        index_code = "\n        # Create unique composite indexes\n"
-        for fields in unique_combinations:
-            index_name = f"{'_'.join(fields)}_unique_idx"
-            fields_str = ", ".join([f'"{field}"' for field in fields])
-
-            index_code += f"""        if "{index_name}" not in [idx["name"] for idx in self.db.collection(self.collection_name).indexes()]:
-            self.db.collection(self.collection_name).add_persistent_index(
-                fields=[{fields_str}], 
-                unique=True,
-                name="{index_name}"
-            )\n"""
-
-    # Prepare validation code for unique combinations
-    validation_code = ""
-    if unique_combinations:
-        validation_code = "\n        # Check for unique combinations\n"
-        for fields in unique_combinations:
-            # Build AQL filter conditions for each field in the combination
-            filter_conditions = []
-            bind_vars = []
-            field_names = []
-
-            for field in fields:
-                filter_conditions.append(f"doc.{field} == @{field}")
-                bind_vars.append(f'"{field}": data.get("{field}")')
-                field_names.append(field)
-
-            # Join the field conditions with AND
-            field_conditions = " AND ".join(filter_conditions)
-            bind_vars_str = ", ".join(bind_vars)
-            field_names_str = ", ".join(field_names)
-
-            validation_code += f"""        # Check for existing {field_names_str} combination
-        existing_combination = self.db.aql.execute(
-            f\"\"\"FOR doc IN {{self.collection_name}} 
-                FILTER {field_conditions} 
-                LIMIT 1 RETURN 1\"\"\",
-            bind_vars={{{bind_vars_str}}}
-        )
-        
-        if list(existing_combination):
-            raise HTTPException(
-                status_code=409, 
-                detail=f"A {camel_name} with this {field_names_str} combination already exists"
-            )
-            
-"""
-
-    # Add this code to the create method in the service template
-    validation_code += """
-        # Apply default values
-        defaults = {
-"""
-
-    # Add default values from schema
-    for field, prop in entity_info.get("properties", {}).items():
-        if "default" in prop:
-            # Convert JSON booleans to Python booleans
-            if prop["default"] is True:
-                default_value = "True"
-            elif prop["default"] is False:
-                default_value = "False"
-            else:
-                default_value = json.dumps(
-                    prop["default"]
-                )  # Properly format other values
-            validation_code += f'            "{field}": {default_value},\n'
-
-    # Add defaults from custom extension if it exists
-    for field, value in entity_info.get("x-default-values", {}).items():
-        # Convert JSON booleans to Python booleans
-        if value is True:
-            default_value = "True"
-        elif value is False:
-            default_value = "False"
+    # Fix method definitions not properly indented under class
+    lines = rendered.split('\n')
+    properly_indented = []
+    in_class = False
+    
+    for line in lines:
+        if line.strip().startswith('class '):
+            in_class = True
+            properly_indented.append(line)
+        elif in_class and line.strip() and (line.startswith('async def ') or line.startswith('def ')):
+            # Add indentation to method definitions
+            properly_indented.append('    ' + line)
         else:
-            default_value = json.dumps(value)  # Properly format other values
-        validation_code += f'            "{field}": {default_value},\n'
-
-    validation_code += """
-        }
-        
-        # Apply defaults for missing fields
-        for field, value in defaults.items():
-            if field not in data:
-                data[field] = value
-"""
-
-    # Get search fields with their types
-    search_fields = entity_info.get("search_fields", [])
-    search_field_types = entity_info.get("search_field_types", {})
-
-    # Prepare filtered query method if search fields exist
-    filtered_query_method = ""
-    if search_fields:
-        # Build field type checks for each search field
-        field_type_checks = ""
-        for field in search_fields:
-            field_type = search_field_types.get(field, "string")
-            field_type_checks += f'                    if field == "{field}":\n'
-            field_type_checks += (
-                f'                        field_type = "{field_type}"\n'
-            )
-
-        filtered_query_method = f"""
-    async def get_filtered(self, filters: Dict[str, Any], skip: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
-        \"\"\"Get filtered {camel_name}s with smart text search and pagination\"\"\"
-        try:
-            # Build filter conditions
-            conditions = []
-            bind_vars = {{}}
-            
-            for field, value in filters.items():
-                if value is not None:  # Skip None values
-                    # Determine field type based on schema
-                    field_type = "string"  # Default to string
-{field_type_checks}
-                    
-                    # Use LIKE for string fields (case-insensitive wildcard search)
-                    if field_type == "string" and not field.endswith("_id"):
-                        conditions.append(f"LOWER(doc.{{field}}) LIKE LOWER(@{{field}})")
-                        bind_vars[field] = f"%{{value}}%"  # Add wildcards for partial matching
-                    else:
-                        # Exact match for non-string fields and ID fields
-                        conditions.append(f"doc.{{field}} == @{{field}}")
-                        bind_vars[field] = value
-            
-            # Construct query
-            filter_clause = " AND ".join(conditions) if conditions else "true"
-            query = f\"\"\"
-                FOR doc IN {{self.collection_name}}
-                FILTER {{filter_clause}}
-                LIMIT {{skip}}, {{limit}}
-                RETURN doc
-            \"\"\"
-            
-            result = self.db.aql.execute(query, bind_vars=bind_vars)
-            return [doc for doc in result]
-        except Exception as e:
-            logger.error(f"Error fetching filtered {camel_name}s: {{e}}")
-            raise HTTPException(status_code=500, detail=f"Error fetching {camel_name}s: {{str(e)}}")
-"""
-
-    # Basic service template
-    template = f"""\"\"\"
-Service for {pascal_name} operations.
-\"\"\"
-from datetime import datetime, timezone, date
-from typing import Dict, List, Optional, Any, Union
-from arango.database import Database
-from fastapi import HTTPException
-from loguru import logger
-
-class {pascal_name}Service:
-    def __init__(self, db: Database):
-        self.db = db
-        self.collection_name = "{entity_name}"
-        
-        # Ensure collection exists
-        if not self.db.has_collection(self.collection_name):
-            self.db.create_collection(
-                self.collection_name, 
-                edge={"True" if is_edge else "False"}
-            ){index_code}
+            properly_indented.append(line)
     
-    async def create(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        \"\"\"Create a new {camel_name}\"\"\"
-{validation_code}
-        # Add timestamps
-        data["created_at"] = datetime.utcnow().isoformat()
-        data["updated_at"] = data["created_at"]
-        for field, value in list(data.items()):
-            if isinstance(value, date):
-                data[field] = value.isoformat()
-        try:
-            result = self.db.collection(self.collection_name).insert(data, return_new=True)
-            return result["new"]
-        except Exception as e:
-            logger.error(f"Error creating {camel_name}: {{e}}")
-            raise HTTPException(status_code=500, detail=f"Error creating {camel_name}: {{str(e)}}")
-    
-    async def get_all(self, skip: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
-        \"\"\"Get all {camel_name}s with pagination\"\"\"
-        try:
-            query = f"FOR doc IN {{self.collection_name}} LIMIT {{skip}}, {{limit}} RETURN doc"
-            result = self.db.aql.execute(query)
-            return [doc for doc in result]
-        except Exception as e:
-            logger.error(f"Error fetching {camel_name}s: {{e}}")
-            raise HTTPException(status_code=500, detail=f"Error fetching {camel_name}s: {{str(e)}}")
-    
-    async def get_by_key(self, key: str) -> Dict[str, Any]:
-        \"\"\"Get a {camel_name} by its key\"\"\"
-        try:
-            result = self.db.collection(self.collection_name).get({{'_key': key}})
-            if not result:
-                raise HTTPException(status_code=404, detail=f"{pascal_name} with key {{key}} not found")
-            return result
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error fetching {camel_name} by key: {{e}}")
-            raise HTTPException(status_code=500, detail=f"Error fetching {camel_name}: {{str(e)}}")
-    
-    async def update(self, key: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        \"\"\"Update a {camel_name} by its key\"\"\"
-        try:
-            # Check if document exists
-            existing_doc = self.db.collection(self.collection_name).get({{'_key': key}})
-            if not existing_doc:
-                raise HTTPException(status_code=404, detail=f"{pascal_name} with key {{key}} not found")
-            
-            # Create merged document with updated data
-            updated_doc = existing_doc.copy()
-            updated_doc.update(data)
-            
-            # Add updated timestamp
-            updated_doc["updated_at"] = datetime.now(timezone.utc).isoformat()
-            
-            # Convert date objects to ISO format strings
-            for field, value in list(updated_doc.items()):
-                if isinstance(value, date):
-                    updated_doc[field] = value.isoformat()
-            
-            # Remove any fields that shouldn't be modified
-            for field in ["_id", "_rev"]:
-                if field in updated_doc:
-                    del updated_doc[field]
-            
-            # Make sure key stays consistent
-            updated_doc["_key"] = key
-            
-            # Replace the document with the updated version
-            result = self.db.collection(self.collection_name).replace(updated_doc, return_new=True)
-            return result["new"]
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error updating {camel_name}: {{e}}")
-            raise HTTPException(status_code=500, detail=f"Error updating {camel_name}: {{str(e)}}")
-    
-    async def delete(self, key: str) -> bool:
-        \"\"\"Delete a {camel_name} by its key\"\"\"
-        try:
-            # Check if document exists
-            existing = self.db.collection(self.collection_name).get({{'_key': key}})
-            if not existing:
-                raise HTTPException(status_code=404, detail=f"{pascal_name} with key {{key}} not found")
-            
-            # Delete the document
-            self.db.collection(self.collection_name).delete({{'_key': key}})
-            return True
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error deleting {camel_name}: {{e}}")
-            raise HTTPException(status_code=500, detail=f"Error deleting {camel_name}: {{str(e)}}")
-{edge_methods}{filtered_query_method}"""
-
-    # Write to file
     os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, f"{entity_name}_service.py")
+    output_path = os.path.join(output_dir, f"{entity_info['entity_name']}_service.py")
     with open(output_path, "w") as f:
-        f.write(template)
-
+        f.write('\n'.join(properly_indented))
+        
     print(f"Generated service file: {output_path}")
 
 
 def generate_routes_file(entity_info: Dict[str, Any], output_dir: str) -> None:
-    """Generate routes file with API endpoints"""
-    entity_name = entity_info["entity_name"]
-    pascal_name = entity_info["pascal_name"]
-    camel_name = entity_info["camel_name"]
-    is_edge = entity_info["is_edge"]
-
-    # Get search fields with types
-    search_fields = entity_info.get("search_fields", [])
-    search_field_types = entity_info.get("search_field_types", {})
-    properties = entity_info.get("properties", {})
-
-    # Build query parameters for search fields
-    query_params = ""
-    filter_params_dict = ""
-
-    if search_fields:
-        # Create query parameters for each search field
-        for field in search_fields:
-            if field in properties:
-                prop_info = properties[field]
-                field_type = prop_info.get("type", "string")
-
-                # Map JSON types to Python types
-                type_map = {
-                    "string": "str",
-                    "integer": "int",
-                    "number": "float",
-                    "boolean": "bool",
-                }
-                py_type = type_map.get(field_type, "str")
-
-                # Get description if available
-                desc = prop_info.get("description", f"Filter by {field}")
-                if field_type == "string" and not field.endswith("_id"):
-                    desc += " (supports partial matching)"
-
-                # Add the query parameter
-                query_params += f"""    {field}: Optional[{py_type}] = Query(None, description="{desc}"),\n"""
-
-                # Add to filter params dictionary
-                filter_params_dict += f'        "{field}": {field},\n'
-
-    # Edge-specific routes
-    edge_routes = ""
-    if is_edge and len(entity_info["connected_entities"]) == 2:
-        from_entity, to_entity = entity_info["connected_entities"]
-        from_pascal = snake_to_pascal(from_entity)
-        to_pascal = snake_to_pascal(to_entity)
-
-        edge_routes = f"""
-@router.get("/{from_entity}/{{from_key}}/{to_entity}/{{to_key}}", response_model=List[{pascal_name}Response])
-async def get_{entity_name}_by_from_to(
-    from_key: str = Path(..., title="{from_pascal} key"),
-    to_key: str = Path(..., title="{to_pascal} key"),
-    db: Database = Depends(get_db)
-):
-    \"\"\"Get {camel_name} edges between a specific {from_entity} and {to_entity}\"\"\"
-    service = {pascal_name}Service(db)
-    result = await service.get_by_from_to(from_key, to_key)
-    return result
-
-@router.get("/{from_entity}/{{from_key}}", response_model=List[{pascal_name}Response])
-async def get_{entity_name}_by_from(
-    from_key: str = Path(..., title="{from_pascal} key"),
-    db: Database = Depends(get_db)
-):
-    \"\"\"Get all {camel_name} edges from a specific {from_entity}\"\"\"
-    service = {pascal_name}Service(db)
-    result = await service.get_by_from(from_key)
-    return result
-
-@router.get("/{to_entity}/{{to_key}}", response_model=List[{pascal_name}Response])
-async def get_{entity_name}_by_to(
-    to_key: str = Path(..., title="{to_pascal} key"),
-    db: Database = Depends(get_db)
-):
-    \"\"\"Get all {camel_name} edges to a specific {to_entity}\"\"\"
-    service = {pascal_name}Service(db)
-    result = await service.get_by_to(to_key)
-    return result
-"""
-
-    # Build the complete template by parts to avoid syntax errors
-    template_parts = []
-
-    # Header section
-    template_parts.append(
-        f"""\"\"\"
-API routes for {camel_name} management.
-\"\"\"
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Path
-from arango.database import Database
-
-from ..schemas.{entity_name} import {pascal_name}InDB, {pascal_name}Create, {pascal_name}Update, {pascal_name}Response, {pascal_name}DeleteResponse
-from ..services.{entity_name}_service import {pascal_name}Service
-from ..db import get_db
-
-router = APIRouter(prefix="/{entity_name}", tags=["{pascal_name}"])
-
-@router.post("/", response_model={pascal_name}Response, status_code=201)
-async def create_{entity_name}(
-    data: {pascal_name}Create,
-    db: Database = Depends(get_db)
-):
-    \"\"\"Create a new {camel_name}\"\"\"
-    service = {pascal_name}Service(db)
-    result = await service.create(data.model_dump(exclude_unset=True))
-    return result
-"""
+    """Generate routes file using Jinja2 template"""
+    env = get_jinja_env()
+    
+    # Map JSON schema types to Python types for query params
+    type_mapping = {
+        "string": "str",
+        "integer": "int",
+        "number": "float",
+        "boolean": "bool",
+        "array": "List[Any]",
+        "object": "Dict[str, Any]",
+    }
+    
+    template = env.get_template("base/routes.py.jinja")
+    rendered = template.render(
+        entity=entity_info,
+        type_mapping=type_mapping
     )
-
-    # Get all endpoint with or without search
-    if search_fields:
-        template_parts.append(
-            f"""
-@router.get("/", response_model=List[{pascal_name}Response])
-async def get_all_{entity_name}s(
-{query_params}    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
-    db: Database = Depends(get_db)
-):
-    \"\"\"Get all {camel_name}s with optional filtering and text search\"\"\"
-    service = {pascal_name}Service(db)
     
-    # Check if any filters are applied
-    filters = {{
-{filter_params_dict}    }}
-    
-    # Remove None values
-    filters = {{k: v for k, v in filters.items() if v is not None}}
-    
-    if filters:
-        result = await service.get_filtered(filters, skip, limit)
-    else:
-        result = await service.get_all(skip, limit)
-        
-    return result
-"""
-        )
-    else:
-        template_parts.append(
-            f"""
-@router.get("/", response_model=List[{pascal_name}Response])
-async def get_all_{entity_name}s(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
-    db: Database = Depends(get_db)
-):
-    \"\"\"Get all {camel_name}s with pagination\"\"\"
-    service = {pascal_name}Service(db)
-    result = await service.get_all(skip, limit)
-    return result
-"""
-        )
-
-    # CRUD endpoints
-    template_parts.append(
-        f"""
-@router.get("/{{key}}", response_model={pascal_name}Response)
-async def get_{entity_name}_by_key(
-    key: str = Path(..., title="{pascal_name} key"),
-    db: Database = Depends(get_db)
-):
-    \"\"\"Get a {camel_name} by its key\"\"\"
-    service = {pascal_name}Service(db)
-    result = await service.get_by_key(key)
-    return result
-
-@router.patch("/{{key}}", response_model={pascal_name}Response)
-async def update_{entity_name}(
-    data: {pascal_name}Update,
-    key: str = Path(..., title="{pascal_name} key"),
-    db: Database = Depends(get_db)
-):
-    \"\"\"Update a {camel_name} by its key\"\"\"
-    service = {pascal_name}Service(db)
-    result = await service.update(key, data.model_dump(exclude_unset=True))
-    return result
-
-@router.delete("/{{key}}", response_model={pascal_name}DeleteResponse)
-async def delete_{entity_name}(
-    key: str = Path(..., title="{pascal_name} key"),
-    db: Database = Depends(get_db)
-):
-    \"\"\"Delete a {camel_name} by its key\"\"\"
-    service = {pascal_name}Service(db)
-    result = await service.delete(key)
-    return {{"success": result}}
-"""
-    )
-
-    # Edge-specific routes
-    if edge_routes:
-        template_parts.append(edge_routes)
-
-    # Combine all parts into final template
-    template = "".join(template_parts)
-
-    # Write to file
     os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, f"{entity_name}_routes.py")
+    output_path = os.path.join(output_dir, f"{entity_info['entity_name']}_routes.py")
+    
+    # Ensure route function definitions are properly indented
+    lines = rendered.split('\n')
+    properly_indented = []
+    in_decorator = False
+    
+    for line in lines:
+        if line.strip().startswith('@router.'):
+            in_decorator = True
+            properly_indented.append(line)
+        elif in_decorator and line.strip().startswith('async def '):
+            # Keep the decorator's function correctly indented
+            properly_indented.append(line)
+            in_decorator = False
+        elif line.strip().startswith('async def '):
+            # Add indentation to any async def that isn't after a decorator
+            properly_indented.append('    ' + line)
+        else:
+            properly_indented.append(line)
+    
     with open(output_path, "w") as f:
-        f.write(template)
-
+        f.write('\n'.join(properly_indented))
+        
     print(f"Generated routes file: {output_path}")
+
+
+def generate_custom_files(entity_info: Dict[str, Any], output_dir: str) -> None:
+    """Generate custom function and route files using Jinja2 templates"""
+    env = get_jinja_env()
+    
+    # Get the custom endpoints configuration
+    custom_endpoints = entity_info.get("custom_endpoints", [])
+    
+    for endpoint in custom_endpoints:
+        function_name = endpoint.get("name")
+        if not function_name:
+            continue
+            
+        # Check if there are custom templates for this function
+        function_template_path = f"custom/{function_name}.py.jinja"
+        route_template_path = f"custom/{function_name}.route.jinja"
+        
+        # Try to get the function template
+        try:
+            function_template = env.get_template(function_template_path)
+            
+            # Get HTTP method and route path from endpoint or use defaults
+            http_method = endpoint.get("http_method", "get").lower()
+            route_path = endpoint.get("route_path", f"/{function_name}")
+            
+            # Render the function template with additional context
+            rendered_function = function_template.render(
+                entity=entity_info,
+                http_method=http_method,
+                route_path=route_path,
+                endpoint=endpoint
+            )
+            
+            # Add the function to the service file
+            service_file_path = os.path.join(output_dir, f"{entity_info['entity_name']}_service.py")
+            
+            if os.path.exists(service_file_path):
+                with open(service_file_path, "r") as f:
+                    service_content = f.read()
+                
+                # Check if the function is already defined
+                function_def_pattern = re.compile(f"async def {function_name}\\(.*?\\):")
+                if not function_def_pattern.search(service_content):
+                    # Find where to insert the function - before the last line
+                    last_line_index = service_content.rstrip().rfind("\n")
+                    
+                    # Insert the function at the appropriate place
+                    service_content = (
+                        service_content[:last_line_index] +
+                        "\n\n" + rendered_function +
+                        service_content[last_line_index:]
+                    )
+                    
+                    with open(service_file_path, "w") as f:
+                        f.write(service_content)
+                        
+                    print(f"Added custom function '{function_name}' to service file")
+                else:
+                    print(f"Custom function '{function_name}' already exists in service file")
+            else:
+                print(f"Warning: Service file not found at {service_file_path}")
+                
+        except Exception as e:
+            print(f"Error generating custom function {function_name}: {e}")
+        
+        # If this endpoint should have a route, generate it
+        if endpoint.get("expose_route", True):
+            try:
+                route_template = env.get_template(route_template_path)
+                
+                # Get HTTP method and route path from endpoint or use defaults
+                http_method = endpoint.get("http_method", "get").lower()
+                route_path = endpoint.get("route_path", f"/{function_name}")
+                
+                # Render the route template with additional context
+                rendered_route = route_template.render(
+                    entity=entity_info,
+                    http_method=http_method,
+                    route_path=route_path,
+                    endpoint=endpoint
+                )
+                
+                # Add the route to the routes file
+                routes_file_path = os.path.join(output_dir, f"{entity_info['entity_name']}_routes.py")
+                
+                if os.path.exists(routes_file_path):
+                    with open(routes_file_path, "r") as f:
+                        routes_content = f.read()
+                    
+                    # Check if the route is already defined
+                    route_def_pattern = re.compile(f"async def {entity_info['entity_name']}_{function_name}\\(.*?\\):")
+                    if not route_def_pattern.search(routes_content):
+                        # Find where to insert the route - before the last line
+                        last_line_index = routes_content.rstrip().rfind("\n")
+                        
+                        # Insert the route at the appropriate place
+                        routes_content = (
+                            routes_content[:last_line_index] +
+                            "\n\n" + rendered_route +
+                            routes_content[last_line_index:]
+                        )
+                        
+                        with open(routes_file_path, "w") as f:
+                            f.write(routes_content)
+                            
+                        print(f"Added custom route for '{function_name}' to routes file")
+                    else:
+                        print(f"Custom route for '{function_name}' already exists in routes file")
+                else:
+                    print(f"Warning: Routes file not found at {routes_file_path}")
+                    
+            except Exception as e:
+                print(f"Error generating custom route for {function_name}: {e}")
 
 
 def update_entity_registry(entity_name: str) -> None:
@@ -1013,12 +452,14 @@ def update_entity_registry(entity_name: str) -> None:
     # Build paths with absolute references
     project_root = Path(__file__).parent.parent
     entity_registry_path = project_root / "backend" / "routes" / "entities.py"
+    router_json_path = project_root / "backend" / "routes" / "entity_router.json"
     schemas_init_path = project_root / "backend" / "schemas" / "__init__.py"
+
+    # Get Jinja2 environment
+    env = get_jinja_env()
 
     print(f"Updating entity registry at: {entity_registry_path}")
     print(f"Updating schemas __init__ at: {schemas_init_path}")
-
-    # 1. Update Router Registry
     if not entity_registry_path.exists():
         with open(entity_registry_path, "w") as f:
             f.write(
@@ -1041,19 +482,22 @@ entity_routers = [
     with open(entity_registry_path, "r") as f:
         content = f.read()
 
-    # Add import statement
-    import_line = f"from .{entity_name}_routes import router as {entity_name}_router"
-    if import_line not in content:  # Avoid duplicates
+    # Render the router import and router entry
+    router_import = env.get_template("helpers/router_import.py.jinja").render(
+        entity_name=entity_name
+    )
+    router_block = env.get_template("helpers/router_block.py.jinja").render(
+        entity_name=entity_name
+    )
+
+    if router_import not in content:  # Avoid duplicates
         content = content.replace(
             "# AUTO-GENERATED IMPORTS - DO NOT REMOVE THIS LINE",
-            f"{import_line}\n# AUTO-GENERATED IMPORTS - DO NOT REMOVE THIS LINE",
+            f"{router_import}\n# AUTO-GENERATED IMPORTS - DO NOT REMOVE THIS LINE",
         )
 
-    # Add router to list
-    router_line = f"    {entity_name}_router,"
-    router_pattern = rf"\b{entity_name}_router\b"
-
     # Check if this router is already listed by looking for its name specifically
+    router_pattern = rf"\b{entity_name}_router\b"
     router_already_exists = False
     if "entity_routers = [" in content:
         router_already_exists = re.search(
@@ -1063,14 +507,68 @@ entity_routers = [
     if not router_already_exists:  # Only add if not already in the list
         content = content.replace(
             "    # AUTO-GENERATED ROUTERS - DO NOT REMOVE THIS LINE",
-            f"{router_line}\n    # AUTO-GENERATED ROUTERS - DO NOT REMOVE THIS LINE",
+            f"{router_block}\n    # AUTO-GENERATED ROUTERS - DO NOT REMOVE THIS LINE",
         )
-
+        
     # Write the updated content
     with open(entity_registry_path, "w") as f:
         f.write(content)
 
     print(f"Updated entity registry with {entity_name}_router")
+
+    # Get schema info to check if it's an edge collection
+    entity_is_edge = False
+    connected_entities = []
+    search_fields = []
+    
+    # Look for the entity info in the original schema path
+    schema_files = glob.glob(str(Path(sys.argv[1]).parent / f"{entity_name}.schema.json"))
+    if schema_files:
+        try:
+            schema_info = parse_schema(schema_files[0])
+            entity_is_edge = schema_info.get("is_edge", False)
+            connected_entities = schema_info.get("connected_entities", [])
+            search_fields = schema_info.get("search_fields", [])
+        except Exception as e:
+            logger.warning(f"Error parsing schema for {entity_name}: {e}")
+    
+    # Create simplified entity info for the router config
+    pascal_name = snake_to_pascal(entity_name)
+    simple_entity_info = {
+        "entity_name": entity_name,
+        "pascal_name": pascal_name,
+        "camel_name": snake_to_camel(entity_name),
+        "description": f"API for managing {pascal_name} resources",
+        "is_edge": entity_is_edge,
+        "connected_entities": connected_entities,
+        "search_fields": search_fields
+    }
+    
+    # Update entity router JSON config
+    env.filters["tojson"] = json.dumps
+    router_config_template = env.get_template("helpers/entity_router_config.json.jinja")
+    router_config_rendered = router_config_template.render(entity=simple_entity_info)
+    
+    # Parse the rendered JSON
+    router_config = json.loads(router_config_rendered)
+    
+    # Load existing router config if it exists
+    router_config_full = {}
+    if router_json_path.exists():
+        try:
+            with open(router_json_path, "r") as f:
+                router_config_full = json.load(f)
+        except json.JSONDecodeError:
+            logger.warning(f"Error parsing {router_json_path}, starting with empty config")
+    
+    # Update with new entity configuration
+    router_config_full.update(router_config)
+    
+    # Write the updated config
+    with open(router_json_path, "w") as f:
+        json.dump(router_config_full, f, indent=2)
+        
+    print(f"Updated entity router JSON config for {entity_name}")
 
     # 2. Update Schema Imports
     if not schemas_init_path.exists():
@@ -1110,29 +608,19 @@ __all__ = [
 ]
 """
 
-    # Add import statement
-    import_block = f"""from .{entity_name} import (
-    {pascal_name}Base,
-    {pascal_name}Create,
-    {pascal_name}Update,
-    {pascal_name}InDB,
-    {pascal_name}Response,
-    {pascal_name}DeleteResponse,
-)"""
+    # Render the import and models blocks using Jinja2 templates
+    import_block = env.get_template("helpers/import_block.py.jinja").render(
+        entity_name=entity_name, pascal_name=pascal_name
+    )
+    models_block = env.get_template("helpers/models_block.py.jinja").render(
+        pascal_name=pascal_name
+    )
 
     if f"from .{entity_name} import" not in init_content:  # Avoid duplicates
         init_content = init_content.replace(
             "# AUTO-GENERATED IMPORTS - DO NOT REMOVE THIS LINE",
             f"{import_block}\n\n# AUTO-GENERATED IMPORTS - DO NOT REMOVE THIS LINE",
         )
-
-    # Add to __all__
-    models_block = f"""    "{pascal_name}Base",
-    "{pascal_name}Create",
-    "{pascal_name}Update",
-    "{pascal_name}InDB",
-    "{pascal_name}Response",
-    "{pascal_name}DeleteResponse","""
 
     if f'"{pascal_name}Base"' not in init_content:  # Avoid duplicates
         init_content = init_content.replace(

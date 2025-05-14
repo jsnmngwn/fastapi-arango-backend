@@ -1,0 +1,73 @@
+async def get_filtered(self, filters: Dict[str, Any], skip: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get filtered {{ entity.camel_name }}s with smart text search and pagination"""
+        try:
+            conditions = []
+            bind_vars = {}
+            
+            {% for field in entity.search_fields %}
+            if filters.get("{{ field }}") is not None:
+                field_type = "{{ entity.search_field_types.get(field, 'string') }}"
+                {% set field_parts = field.split('.') %}
+                {% if field_parts|length > 1 %}
+                # Handle nested property syntax for AQL query
+                {% if field_parts[0].endswith('s') or field_parts[0] == 'entries' %}
+                # This is likely an array field, need to use ANY syntax
+                if field_type == "string" and not "{{ field }}".endswith("_id"):
+                    conditions.append(f"LENGTH(FOR item IN doc.{{ field_parts[0] }} FILTER LOWER(item.{{ field_parts[1] }}) LIKE LOWER(@{{ field_parts|join('_') }}) RETURN 1) > 0")
+                    bind_vars["{{ field_parts|join('_') }}"] = f"%{filters['{{ field }}']!s}%"
+                else:
+                    conditions.append(f"LENGTH(FOR item IN doc.{{ field_parts[0] }} FILTER item.{{ field_parts[1] }} == @{{ field_parts|join('_') }} RETURN 1) > 0")
+                    bind_vars["{{ field_parts|join('_') }}"] = filters["{{ field }}"]
+                {% else %}
+                # This is a normal nested object
+                if field_type == "string" and not "{{ field }}".endswith("_id"):
+                    conditions.append(f"LOWER(doc.{{ field }}) LIKE LOWER(@{{ field_parts|join('_') }})")
+                    bind_vars["{{ field_parts|join('_') }}"] = f"%{filters['{{ field }}']!s}%"
+                else:
+                    conditions.append(f"doc.{{ field }} == @{{ field_parts|join('_') }}")
+                    bind_vars["{{ field_parts|join('_') }}"] = filters["{{ field }}"]
+                {% endif %}
+                {% else %}
+                # Handle array and object types specially
+                {% if field_type == "array" %}
+                try:
+                    # Try to find an exact match first (assuming string contains a single value)
+                    conditions.append(f"@{{ field }} IN doc.{{ field }}")
+                    bind_vars["{{ field }}"] = filters["{{ field }}"]
+                except Exception as e:
+                    logger.warning(f"Error handling array filter for {{ field }}: {e}")
+                    # Fallback to string pattern matching if the value doesn't parse
+                    conditions.append(f"TO_STRING(doc.{{ field }}) LIKE @{{ field }}")
+                    bind_vars["{{ field }}"] = f"%{filters['{{ field }}']!s}%"
+                {% elif field_type == "object" %}
+                # For object types, we'll do a string pattern match
+                conditions.append(f"TO_STRING(doc.{{ field }}) LIKE @{{ field }}")
+                bind_vars["{{ field }}"] = f"%{filters['{{ field }}']!s}%"
+                {% else %}
+                # Regular string or primitive type
+                if field_type == "string" and not "{{ field }}".endswith("_id"):
+                    conditions.append(f"LOWER(doc.{{ field }}) LIKE LOWER(@{{ field }})")
+                    bind_vars["{{ field }}"] = f"%{filters['{{ field }}']!s}%"
+                else:
+                    conditions.append(f"doc.{{ field }} == @{{ field }}")
+                    bind_vars["{{ field }}"] = filters["{{ field }}"]
+                {% endif %}
+                {% endif %}
+            {% endfor %}
+            
+            filter_clause = " AND ".join(conditions) if conditions else "true"
+            query = f"""
+                FOR doc IN {self.collection_name}
+                FILTER {filter_clause}
+                LIMIT {skip}, {limit}
+                RETURN doc
+            """
+            
+            logger.debug(f"Executing AQL query: {query}")
+            logger.debug(f"With bind variables: {bind_vars}")
+            
+            result = self.db.aql.execute(query, bind_vars=bind_vars)
+            return [doc for doc in result]
+        except Exception as e:
+            logger.error(f"Error fetching filtered {{ entity.camel_name }}s: {e}")
+            raise HTTPException(status_code=500, detail=f"Error fetching {{ entity.camel_name }}s: {str(e)}")

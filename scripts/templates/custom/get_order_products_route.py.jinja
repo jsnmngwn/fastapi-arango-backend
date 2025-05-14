@@ -1,0 +1,17 @@
+from fastapi import APIRouter, Depends, HTTPException
+from typing import Any, Dict
+from .service import ServiceClass  # Replace with actual service import
+
+router = APIRouter()
+
+@router.get("/orders/{key}/products", response_model=Dict[str, Any])
+async def get_order_products_route(key: str, service: ServiceClass = Depends()):
+    """
+    Get all products associated with a given order.
+    """
+    try:
+        return await service.get_order_products(key)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

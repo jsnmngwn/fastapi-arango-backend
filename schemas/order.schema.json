@@ -22,5 +22,17 @@
     "status",
     "total_amount",
     "payment_method"
+  ],
+  "x-unique-combinations": [
+    ["order_date", "total_amount"]
+  ],
+  "x-custom-endpoints": [
+    {
+      "name": "get_order_products",
+      "expose_route": true,
+      "route_path": "/{key}/products",
+      "http_method": "get",
+      "description": "Get all products associated with an order. This is a demo of a custom endpoint feature."
+    }
   ]
 }
