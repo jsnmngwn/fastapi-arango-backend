@@ -1,0 +1,7 @@
+"""Schemas package for VB Stat Logger API."""
+
+# AUTO-GENERATED IMPORTS - DO NOT REMOVE THIS LINE
+
+__all__ = [
+    # AUTO-GENERATED MODELS - DO NOT REMOVE THIS LINE
+]
