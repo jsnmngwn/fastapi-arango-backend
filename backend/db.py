@@ -10,7 +10,7 @@ from loguru import logger
 DB_HOST = os.environ.get("ARANGO_HOST", "http://localhost:8529")
 DB_USER = os.environ.get("ARANGO_USER", "root")
 DB_PASS = os.environ.get("ARANGO_PASSWORD", "rootpassword")
-DB_NAME = os.environ.get("ARANGO_DB", "app_db")
+DB_NAME = os.environ.get("ARANGO_DB", "demo_db")
 
 # Optionally load collection names from config, else use empty/generic defaults
 CONFIG_PATH = Path(__file__).parent / "config" / "collections.json"
